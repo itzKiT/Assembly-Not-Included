@@ -1,7 +1,7 @@
 local MOD = "[Assembly Not Included]"
-local MENU_ASSET = "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncluded"
+local MENU_ASSET = "/Game/Mods/AssemblyOptional/WBP_AssemblyOptional"
 local SPEEDOMETER_ASSET =
-    "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer"
+    "/Game/Mods/AssemblyOptional/WBP_AssemblyOptionalSpeedometer"
 local ITEM_MENU_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu"
 local ITEM_ELEMENT_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerElement"
 local ITEM_CATALOG_TILE_WIDTH = 220
