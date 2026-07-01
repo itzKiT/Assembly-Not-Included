@@ -13,10 +13,10 @@ Recommended download:
 
 ## Installation
 1. Install the latest experimental UE4SS dev build for Windows.
-2. Place the AssemblyNotIncluded folder into your game's UE4SS Mods directory:
-   - ...\DriveBeyondHorizons\Binaries\Win64\ue4ss\Mods\
-3. Ensure the mod folder contains enabled.txt and Scripts/main.lua.
-4. Start the game and verify UE4SS loads the mod from the Mods folder.
+2. Place this mod package in your game's folder at:
+   - ...\common\Drive Beyond Horizons\
+3. The included preset folders and file paths will place all files where they are needed.
+4. Start the game and verify UE4SS loads the mod.
 
 ## Notes
 - If the game crashes or the mod fails to load, confirm you are using the latest experimental UE4SS build and that your UE4SS version is compatible with the game build.
