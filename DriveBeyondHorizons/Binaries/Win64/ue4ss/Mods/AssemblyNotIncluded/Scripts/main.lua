@@ -1,7 +1,7 @@
-local MOD = "[Assembly Optional]"
-local MENU_ASSET = "/Game/Mods/AssemblyOptional/WBP_AssemblyOptional"
+local MOD = "[Assembly Not Included]"
+local MENU_ASSET = "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncluded"
 local SPEEDOMETER_ASSET =
-    "/Game/Mods/AssemblyOptional/WBP_AssemblyOptionalSpeedometer"
+    "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer"
 local ITEM_MENU_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu"
 local ITEM_ELEMENT_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerElement"
 local ITEM_CATALOG_TILE_WIDTH = 220
@@ -108,6 +108,26 @@ local function log(message)
     print(MOD .. " " .. tostring(message))
 end
 
+local raw_execute_with_delay = ExecuteWithDelay
+local function safe_execute_with_delay(delay_ms, callback)
+    if type(callback) ~= "function" then return false end
+    local delay = tonumber(delay_ms) or 0
+    local ok, err = pcall(function()
+        if raw_execute_with_delay then
+            raw_execute_with_delay(delay, callback)
+        else
+            callback()
+        end
+    end)
+    if not ok then
+        log("ExecuteWithDelay fallback: " .. tostring(err))
+        pcall(callback)
+    end
+    return ok
+end
+
+ExecuteWithDelay = safe_execute_with_delay
+
 local function valid(object)
     if not object then return false end
     local ok, result = pcall(function() return object:IsValid() end)
@@ -162,7 +182,7 @@ local function show_message(message)
     pcall(function()
         local chat = {}
         chat.Time_8_DF6F279248745BE38C2E40835DE88631 = 0
-        chat.User_6_4A6B517E45F066403FD3C4B4AA7C0FA3 = "[Assembly Optional]"
+        chat.User_6_4A6B517E45F066403FD3C4B4AA7C0FA3 = "[Assembly Not Included]"
         chat.Mesage_7_79981D7A424DFD8E6876D888E700B202 = tostring(message)
         chat.IsInfoMessage_10_CD41743F409EA1DC4DD22CAC94591338 = true
         pc:ServerSendChatMessage(chat)
@@ -312,7 +332,7 @@ local function bind_menu_buttons(widget)
         end
     end
 
-    log("Indexed " .. tostring(indexed) .. " Assembly Optional button action(s).")
+    log("Indexed " .. tostring(indexed) .. " Assembly Not Included button action(s).")
     if #missing > 0 then
         log("Widget buttons not found: " .. table.concat(missing, ", "))
     end
@@ -330,12 +350,12 @@ local function open_menu()
     end
     menu_widget = create_widget(MENU_ASSET)
     if not valid(menu_widget) then
-        show_message("Menu asset was not loaded. Check Assembly Optional package installation.")
+        show_message("Menu asset was not loaded. Check Assembly Not Included package installation.")
         return
     end
     local indexed = bind_menu_buttons(menu_widget)
     if indexed == 0 then
-        show_message("Menu buttons could not be connected to the Assembly Optional bridge.")
+        show_message("Menu buttons could not be connected to the Assembly Not Included UI.")
     end
     update_paint_mode_buttons()
     expanded_section = nil
@@ -356,7 +376,7 @@ local function open_menu()
     if sync_vehicle_tuning_controls then
         pcall(sync_vehicle_tuning_controls)
     end
-    log("Assembly Optional garage console opened successfully.")
+    log("Assembly Not Included garage console opened successfully.")
 end
 
 local function catalog_class_name(element)
@@ -677,7 +697,7 @@ local function ensure_item_catalog_hook()
                 local widget_ok, refreshed_widget = pcall(function() return context:get() end)
                 if not widget_ok or not valid(refreshed_widget) then return end
                 -- UE4SS may return a fresh Lua wrapper for the same UObject.
-                -- Use the bridge-owned reference so wrapper identity cannot
+                -- Use the mod-owned reference so wrapper identity cannot
                 -- suppress a valid search refresh.
                 schedule_catalog_refresh(item_widget, 500)
             end
@@ -1162,7 +1182,7 @@ local function load_vehicle_tunes()
     local local_app_data = os.getenv("LOCALAPPDATA")
     if not local_app_data or local_app_data == "" then return end
     local path = local_app_data ..
-        "\\DriveBeyondHorizons\\Saved\\AssemblyOptionalVehicleTunes.ini"
+        "\\DriveBeyondHorizons\\Saved\\AssemblyNotIncludedVehicleTunes.ini"
     local file = io.open(path, "r")
     if not file then return end
 
@@ -1196,7 +1216,7 @@ flush_vehicle_tunes = function()
     local local_app_data = os.getenv("LOCALAPPDATA")
     if not local_app_data or local_app_data == "" then return false end
     local path = local_app_data ..
-        "\\DriveBeyondHorizons\\Saved\\AssemblyOptionalVehicleTunes.ini"
+        "\\DriveBeyondHorizons\\Saved\\AssemblyNotIncludedVehicleTunes.ini"
     local file, error_message = io.open(path, "w")
     if not file then
         log("Vehicle tune persistence error: " .. tostring(error_message))
@@ -2187,6 +2207,7 @@ end
 
 local function set_dyn_param_scalar(dyn, key, scalar, add_to_value)
     if not valid(dyn) then return false end
+
     local parameter = make_dyn_scalar_param(key, scalar)
     local changed = false
     local update_ok, update_error = pcall(function()
@@ -2226,41 +2247,55 @@ local function dyn_has_material_parameter(dyn, wanted_key)
         return normalized_material_key(value) == wanted
     end
 
+    local function embedded_key_matches(value)
+        value = unwrap_hook_value(value)
+        if value == nil then return false end
+        for _, field in ipairs({
+            "Key_2_9A8C438B4224A6B1657E3997CF43EB5B",
+            "Key",
+            "ParameterName",
+        }) do
+            local ok, candidate = pcall(function() return value[field] end)
+            if ok and matches(candidate) then return true end
+        end
+        return false
+    end
+
     local function entry_matches(key, entry)
         if matches(key) then return true end
-        local function embedded_key_matches(value)
-            value = unwrap_hook_value(value)
-            if value ~= nil then
-                for _, field in ipairs({
-                    "Key_2_9A8C438B4224A6B1657E3997CF43EB5B",
-                    "Key",
-                    "ParameterName",
-                }) do
-                    local ok, candidate =
-                        pcall(function() return value[field] end)
-                    if ok and matches(candidate) then return true end
+        return embedded_key_matches(entry) or embedded_key_matches(key)
+    end
+
+    local function inspect_container(container)
+        if not container then return false end
+        local ok, err = pcall(function()
+            container:ForEach(function(key, entry)
+                if not found and entry_matches(key, entry) then
+                    found = true
+                end
+            end)
+        end)
+        if ok and found then return true end
+        pcall(function()
+            for _, value in pairs(container) do
+                if not found then
+                    if entry_matches(nil, value) then
+                        found = true
+                    end
                 end
             end
-            return false
-        end
-        return embedded_key_matches(entry) or embedded_key_matches(key)
+        end)
+        return found
     end
 
     for _, property in ipairs({"MapDynParam", "ListDynParam"}) do
         local ok, container = pcall(function() return dyn[property] end)
-        if ok and container ~= nil then
-            pcall(function()
-                container:ForEach(function(key, entry)
-                    if not found and entry_matches(key, entry) then
-                        found = true
-                    end
-                end)
-            end)
+        if ok and container ~= nil and inspect_container(container) then
+            return true
         end
-        if found then break end
     end
 
-    return found
+    return false
 end
 
 local update_all_dyn_log_budget = 6
@@ -2332,18 +2367,18 @@ local function update_surface_dyn_component(actor, mode)
             if set_dyn_param_scalar(dyn, "Rust and wear", 0.0) then
                 changed = true
             end
+            if set_dyn_param_scalar(dyn, "Rust", 0.0) then
+                changed = true
+            end
         elseif mode == "polish" then
-            -- A before/after capture of the game's PolishBrush confirmed its
-            -- committed state: Polish changes from 0 to 1 and BurnAmount is
-            -- initialized to 0. Only components that already define Polish
-            -- can safely accept these updates.
-            if dyn_has_material_parameter(dyn, "Polish") then
-                if set_dyn_param_scalar(dyn, "Polish", 1.0, false) then
-                    changed = true
-                end
-                if set_dyn_param_scalar(dyn, "BurnAmount", 0.0, false) then
-                    changed = true
-                end
+            if set_dyn_param_scalar(dyn, "Polish", 1.0, false) then
+                changed = true
+            end
+            if set_dyn_param_scalar(dyn, "BurnAmount", 0.0, false) then
+                changed = true
+            end
+            if set_dyn_param_scalar(dyn, "Rust and wear", 0.0, false) then
+                changed = true
             end
         end
     end
@@ -2532,6 +2567,11 @@ local function touch_surface_actor(actor, mode, skip_material_updates)
         touched = touched or ok
     end
 
+    if not skip_material_updates then
+        local state_changed = sync_surface_state_struct(actor, mode)
+        touched = touched or state_changed
+    end
+
     if not skip_material_updates and
         (mode == "remove_rust" or mode == "rust") then
         local rust_value = mode == "rust" and 1.0 or 0.0
@@ -2550,6 +2590,9 @@ local function touch_surface_actor(actor, mode, skip_material_updates)
     if not skip_material_updates and mode == "polish" then
         targets = targets or collect_surface_material_targets(actor)
         local polish_scalars = {
+            {"Polish", 1.0},
+            {"PolishAmount", 1.0},
+            {"Polish Amount", 1.0},
             {"Clean", 1.0},
             {"CleanAmount", 1.0},
             {"Clean Amount", 1.0},
@@ -2559,6 +2602,9 @@ local function touch_surface_actor(actor, mode, skip_material_updates)
             {"GlassClean", 1.0},
             {"Window Clean", 1.0},
             {"WindowClean", 1.0},
+            {"Rust and wear", 0.0},
+            {"Rust", 0.0},
+            {"Wear", 0.0},
             {"Dirt", 0.0},
             {"Dust", 0.0},
             {"Mud", 0.0},
@@ -2567,6 +2613,8 @@ local function touch_surface_actor(actor, mode, skip_material_updates)
             {"Soot", 0.0},
             {"Burn", 0.0},
             {"Burned", 0.0},
+            {"Burn Amount", 0.0},
+            {"BurnAmount", 0.0},
             {"Glass Dirt", 0.0},
             {"GlassDirt", 0.0},
             {"Window Dirt", 0.0},
@@ -2612,8 +2660,6 @@ local function set_vehicle_surface(mode)
 
     local scalar_updates
     if mode == "polish" then
-        -- MaterialDynComponent handles Polish inversion. Direct material writes
-        -- would overwrite that computed result, so polishing is component-only.
         scalar_updates = {}
     else
         scalar_updates = {
@@ -2667,7 +2713,7 @@ local function set_vehicle_surface(mode)
                 touch_surface_actor,
                 actors[actor_index],
                 mode,
-                true)
+                mode ~= "polish")
             if ok and changed then parts = parts + 1 end
             actor_index = actor_index + 1
         end
@@ -3946,7 +3992,7 @@ RegisterKeyBind(Key.F6, function()
     return false
 end)
 
-RegisterConsoleCommandGlobalHandler("assemblyoptional", function()
+RegisterConsoleCommandGlobalHandler("assemblynotincluded", function()
     ExecuteInGameThread(open_menu)
     return true
 end)
@@ -3954,4 +4000,4 @@ end)
 ExecuteWithDelay(1500, function()
     ExecuteInGameThread(install_speedometer_tick_hook)
 end)
-log("Bridge loaded. Press F7 to open Assembly Optional: Garage Console.")
+log("Assembly Not Included loaded. Press F7 to open the Garage Console.")
