@@ -32,8 +32,6 @@ local menu_open = false
 local speed_enabled = false
 local jump_enabled = false
 local vehicle_invulnerability = {}
-local original_walk_speed = nil
-local original_acceleration = nil
 local original_jump_velocity = nil
 local player_modifier_baseline = nil
 local player_modifier_loop_token = 0
@@ -3931,7 +3929,7 @@ register("SuperSubwoofer", function()
     show_message("Extended " .. tostring(count) .. " loaded speaker(s).")
 end)
 
-for key, _ in pairs(VEHICLES) do
+for key in pairs(VEHICLES) do
     local vehicle_key = key
     register("Car_" .. vehicle_key, function()
         spawn_complete_vehicle(vehicle_key)
