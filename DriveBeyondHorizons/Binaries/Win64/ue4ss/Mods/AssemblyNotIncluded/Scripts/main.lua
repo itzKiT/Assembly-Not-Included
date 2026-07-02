@@ -2,14 +2,6 @@ local MOD = "[Assembly Not Included]"
 local MENU_ASSET = "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncluded"
 local SPEEDOMETER_ASSET =
     "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer"
-local MENU_ASSET_FALLBACKS = {
-    "/Game/AssemblyNotIncluded/WBP_AssemblyNotIncluded",
-    "/Game/WBP_AssemblyNotIncluded",
-}
-local SPEEDOMETER_ASSET_FALLBACKS = {
-    "/Game/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer",
-    "/Game/WBP_AssemblyNotIncludedSpeedometer",
-}
 local ITEM_MENU_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu"
 local ITEM_ELEMENT_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerElement"
 local ITEM_CATALOG_TILE_WIDTH = 220
@@ -249,27 +241,6 @@ local function create_widget(path)
     return nil
 end
 
-local function create_widget_with_fallbacks(primary_path, fallback_paths)
-    local tried = {}
-    local function try_path(path)
-        if tried[path] then return nil end
-        tried[path] = true
-        return create_widget(path)
-    end
-
-    local widget = try_path(primary_path)
-    if valid(widget) then return widget end
-
-    for _, path in ipairs(fallback_paths or {}) do
-        widget = try_path(path)
-        if valid(widget) then
-            log("Widget loaded using fallback path: " .. tostring(path))
-            return widget
-        end
-    end
-    return nil
-end
-
 local function apply_game_input()
     local pc = get_pc()
     if not valid(pc) then return end
@@ -390,7 +361,19 @@ local function open_menu()
         pcall(function() paint_widget:RemoveFromParent() end)
         paint_widget = nil
     end
-    menu_widget = create_widget_with_fallbacks(MENU_ASSET, MENU_ASSET_FALLBACKS)
+    menu_widget = create_widget(MENU_ASSET)
+    if not valid(menu_widget) then
+        for _, path in ipairs({
+            "/Game/AssemblyNotIncluded/WBP_AssemblyNotIncluded",
+            "/Game/WBP_AssemblyNotIncluded",
+        }) do
+            menu_widget = create_widget(path)
+            if valid(menu_widget) then
+                log("Widget loaded using fallback path: " .. tostring(path))
+                break
+            end
+        end
+    end
     if not valid(menu_widget) then
         show_message("Menu asset was not loaded. Check Assembly Not Included package installation.")
         return
@@ -1103,9 +1086,19 @@ local function ensure_speedometer_widget()
     end
 
     if not valid(speedometer_widget) then
-        speedometer_widget = create_widget_with_fallbacks(
-            SPEEDOMETER_ASSET,
-            SPEEDOMETER_ASSET_FALLBACKS)
+        speedometer_widget = create_widget(SPEEDOMETER_ASSET)
+        if not valid(speedometer_widget) then
+            for _, path in ipairs({
+                "/Game/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer",
+                "/Game/WBP_AssemblyNotIncludedSpeedometer",
+            }) do
+                speedometer_widget = create_widget(path)
+                if valid(speedometer_widget) then
+                    log("Speedometer loaded using fallback path: " .. tostring(path))
+                    break
+                end
+            end
+        end
         if not valid(speedometer_widget) then return nil end
         speedometer_widget:AddToViewport(9000)
         pcall(function() speedometer_widget:SetVisibility(3) end)
