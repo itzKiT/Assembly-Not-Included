@@ -1,0 +1,23 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.5",
+	"FriendlyName": "Assembly Not Included Asset Generator",
+	"Description": "Editor-only generator for Assembly Not Included.",
+	"Category": "Editor",
+	"CreatedBy": "itzKiT",
+	"CreatedByURL": "https://github.com/itzKiT",
+	"DocsURL": "https://github.com/itzKiT/Assembly-Not-Incuded",
+	"MarketplaceURL": "",
+	"SupportURL": "https://github.com/itzKiT/Assembly-Not-Incuded/issues",
+	"EngineVersion": "5.2.0",
+	"CanContainContent": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "AssemblyNotIncludedGenerator",
+			"Type": "Editor",
+			"LoadingPhase": "PostEngineInit"
+		}
+	]
+}

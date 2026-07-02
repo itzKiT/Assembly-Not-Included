@@ -1,0 +1,25 @@
+# Unreal generated output
+/Source/Unreal/Binaries/
+/Source/Unreal/DerivedDataCache/
+/Source/Unreal/Intermediate/
+/Source/Unreal/Saved/
+/Source/Unreal/.vs/
+/Source/Unreal/Build/Windows/FileOpenOrder/
+
+# Plugin generated output
+Source/Unreal/Plugins/*/Binaries/
+Source/Unreal/Plugins/*/Intermediate/
+
+# Local packaging output
+artifacts/
+*.sln
+*.VC.db
+*.opensdf
+*.sdf
+
+# Operating system and editor files
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.user
+*.suo
