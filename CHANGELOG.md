@@ -16,3 +16,4 @@ Initial supported release of Assembly Not Included.
 - Restored normal brush durability when infinite brushes are disabled.
 - Packaged the project under the single `AssemblyNotIncluded` identifier.
 - Added the project evaluation license, creator-review grant, and third-party notices.
+- Documented the zDEV UE4SS experimental-latest build as the required and supported UE4SS version.

@@ -8,7 +8,7 @@ Verify the game through Steam. Do not delete the descriptor supplied by the game
 
 Confirm:
 
-- UE4SS loaded.
+- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Stable and non-zDEV builds are not supported.
 - `AssemblyNotIncluded\enabled.txt` exists.
 - `AssemblyNotIncluded\Scripts\main.lua` exists.
 - `BPModLoaderMod` and `BPML_GenericFunctions` are enabled.
@@ -29,7 +29,7 @@ Also confirm that the UTOC signature bypass is installed.
 
 1. Remove the two Assembly Not Included folders listed in the uninstall instructions.
 2. Verify the game through Steam.
-3. Reinstall the prerequisites.
+3. Reinstall the prerequisites, including the zDEV archive from the UE4SS experimental-latest release.
 4. Reinstall the current release.
 
 Never overwrite the game's official package files with mod packages.
@@ -44,4 +44,3 @@ Include:
 - The relevant end of `UE4SS.log`
 
 Do not upload save files or full game packages.
-

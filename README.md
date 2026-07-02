@@ -21,7 +21,7 @@ Press **F7** in game to open or close the Garage Console.
 ## Requirements
 
 - Drive Beyond Horizons on Steam
-- [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS/releases) with `BPModLoaderMod` and `BPML_GenericFunctions` enabled
+- **Required:** the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest), with `BPModLoaderMod` and `BPML_GenericFunctions` enabled. Stable and non-zDEV UE4SS builds are not supported.
 - [Drive Beyond Horizons UTOC Signature Bypass](https://www.nexusmods.com/drivebeyondhorizons/mods/8)
 
 The release does not redistribute UE4SS, the signature bypass, or game files.

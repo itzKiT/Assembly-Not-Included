@@ -122,6 +122,9 @@ Mods["AssemblyNotIncluded"] = {
 
 Copy-Item -Path (Join-Path $runtimeSource "*") -Destination $runtimeTarget -Recurse -Force
 Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs\INSTALLATION.md") -Destination (Join-Path $releaseRoot "INSTALLATION.md")
+foreach ($document in @("README.md", "LICENSE.md", "NOTICE.md")) {
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot $document) -Destination $releaseRoot
+}
 
 $expected = @(
     "AssemblyNotIncluded.pak",

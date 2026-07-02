@@ -9,6 +9,10 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $source = Join-Path $repositoryRoot "Distribution\DriveBeyondHorizons"
 $gameRootPath = [System.IO.Path]::GetFullPath($GameRoot)
 $shippingExecutable = Join-Path $gameRootPath "DriveBeyondHorizons\Binaries\Win64\DriveBeyondHorizons-Win64-Shipping.exe"
+$requiredUe4ssRelease = "https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest"
+
+Write-Host "Required UE4SS build: zDEV archive from $requiredUe4ssRelease"
+Write-Host "Stable and non-zDEV UE4SS builds are not supported."
 
 if (-not (Test-Path -LiteralPath $shippingExecutable)) {
     throw "Drive Beyond Horizons was not found at: $gameRootPath"
@@ -29,11 +33,10 @@ if (-not (Get-ChildItem -LiteralPath $win64 -Recurse -File -Filter "*UTOC*Bypass
 }
 
 if ($missing.Count -gt 0) {
-    throw "Missing prerequisite(s): $($missing -join ', ')"
+    throw "Missing prerequisite(s): $($missing -join ', '). Install the zDEV UE4SS experimental-latest build from $requiredUe4ssRelease."
 }
 
 if ($PSCmdlet.ShouldProcess($gameRootPath, "Install Assembly Not Included")) {
     Copy-Item -Path (Join-Path $source "*") -Destination $gameRootPath -Recurse -Force
     Write-Host "Assembly Not Included installed successfully."
 }
-

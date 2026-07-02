@@ -14,12 +14,12 @@ steamapps\common\Drive Beyond Horizons\
 
 Install:
 
-1. [UE4SS](https://github.com/UE4SS-RE/RE-UE4SS/releases)
-2. UE4SS `BPModLoaderMod`
-3. UE4SS `BPML_GenericFunctions`
+1. Download and install the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest). Stable and non-zDEV UE4SS builds are not supported.
+2. Enable UE4SS `BPModLoaderMod`.
+3. Enable UE4SS `BPML_GenericFunctions`.
 4. [Drive Beyond Horizons UTOC Signature Bypass](https://www.nexusmods.com/drivebeyondhorizons/mods/8)
 
-Confirm the UE4SS proxy DLL is beside the game executable and that both required UE4SS mods are enabled.
+Confirm the zDEV experimental UE4SS proxy DLL is beside the game executable and that both required UE4SS mods are enabled.
 
 ## 3. Install Assembly Not Included
 
@@ -60,4 +60,3 @@ DriveBeyondHorizons\Content\Paks\LogicMods\AssemblyNotIncluded
 ```
 
 Leave UE4SS and the signature bypass installed if other mods require them.
-

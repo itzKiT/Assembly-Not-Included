@@ -12,7 +12,7 @@ Drive Beyond Horizons and its associated names, software, content, and trademark
 
 Unreal Engine and its associated trademarks and technology belong to Epic Games, Inc. Use of Unreal Engine material is governed by Epic’s applicable license agreements.
 
-UE4SS belongs to its respective contributors and is governed by its own license.
+UE4SS belongs to its respective contributors and is governed by its own license. Assembly Not Included specifically requires the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest); stable and non-zDEV builds are not supported.
 
 The Drive Beyond Horizons UTOC Signature Bypass belongs to its respective author and is governed by its own terms.
 
@@ -31,4 +31,3 @@ Users must obtain required third-party software independently from its authorize
 ## Compatibility
 
 Assembly Not Included modifies runtime behavior and may stop working after a game update. Back up important saves before testing. No guarantee of compatibility, availability, or support is made.
-
