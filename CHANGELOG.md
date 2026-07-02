@@ -15,4 +15,4 @@ Initial supported release of Assembly Not Included.
 - Isolated vehicle surface actions to the occupied vehicle and its attached components.
 - Restored normal brush durability when infinite brushes are disabled.
 - Packaged the project under the single `AssemblyNotIncluded` identifier.
-
+- Added the project evaluation license, creator-review grant, and third-party notices.

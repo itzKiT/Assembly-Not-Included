@@ -60,7 +60,14 @@ The Unreal assets target **Unreal Engine 5.2.1**. See [Building from source](doc
 
 Back up important saves before installing any gameplay mod. Use this project in single-player environments and keep only one copy of the mod installed.
 
+## Licensing and approval status
+
+Assembly Not Included is currently an independent, unofficial project being prepared for submission to the creators of Drive Beyond Horizons. It must not be represented as officially approved or endorsed unless written approval is received.
+
+Original project material is provided under the [Assembly Not Included Evaluation License](LICENSE.md). This proprietary license permits creator review and limited personal, non-commercial use where separately authorized by the applicable game and platform terms. It does not license or claim ownership of third-party intellectual property.
+
+See [Notices](NOTICE.md) for ownership, dependency, and trademark information.
+
 ## Version
 
 Current release: **v0.1.5**
-
