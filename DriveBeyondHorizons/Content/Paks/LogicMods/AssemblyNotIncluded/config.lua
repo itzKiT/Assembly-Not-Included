@@ -1,4 +1,4 @@
 Mods["AssemblyNotIncluded"] = {
-    AssetName = "ModActor",
+    AssetName = "ModActor_C",
     AssetPath = "/Game/Mods/AssemblyNotIncluded/ModActor",
 }

@@ -188,8 +188,10 @@ local function show_message(message)
 end
 
 local function class_from_asset(path)
-    LoadAsset(path)
     local name = path:match("([^/]+)$")
+    local object_path = path .. "." .. name
+    pcall(function() LoadAsset(object_path) end)
+    pcall(function() LoadAsset(path) end)
     local class = StaticFindObject(path .. "." .. name .. "_C")
     if valid(class) then return class end
     class = StaticFindObject("WidgetBlueprintGeneratedClass " .. path .. "." .. name .. "_C")
@@ -206,6 +208,19 @@ local function class_from_asset(path)
             })
         end)
         if ok and valid(loaded_class) then return loaded_class end
+        ok, loaded_class = pcall(function()
+            return helpers:GetAsset({
+                PackageName = UEHelpers.FindOrAddFName(path),
+                AssetName = UEHelpers.FindOrAddFName(name),
+            })
+        end)
+        if ok and valid(loaded_class) then
+            local class_ok, generated = pcall(function()
+                return loaded_class.GeneratedClass
+            end)
+            if class_ok and valid(generated) then return generated end
+            if valid(loaded_class) then return loaded_class end
+        end
     end
     log("Class load failed: " .. path)
     return nil
