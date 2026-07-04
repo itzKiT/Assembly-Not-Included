@@ -2,13 +2,14 @@
 
 Assembly Not Included is an all-in-one utility suite for **Drive Beyond Horizons**. It combines vehicle and item spawning, vehicle maintenance tools, player utilities, world controls, a custom paint workflow, and a vehicle-only speedometer in a compact black-and-pink interface.
 
-Press **F7** in game to open or close the Garage Console.
+Press **F7** in game to open or close Assembly Not Included.
 
 ## Highlights
 
 - Searchable eight-column item catalog
 - Completed-vehicle spawner covering the current vehicle roster
 - Custom spray-can color and finish selection
+- Eight persistent, automatically saved paint-color slots
 - Standard and infinite paint-can modes
 - Vehicle fluid refill, unlimited fluids, battery recharge, and invulnerability
 - Persistent tire-grip adjustment with a stock reset
@@ -29,7 +30,7 @@ The release does not redistribute UE4SS, the signature bypass, or game files.
 ## Installation
 
 1. Install and verify the prerequisites above.
-2. Download `AssemblyNotIncluded-v0.1.5.zip` from the Releases page.
+2. Download `AssemblyNotIncluded-v1.6.0.zip` from the Releases page.
 3. Extract the archive.
 4. Copy the included `DriveBeyondHorizons` folder into:
 
@@ -70,4 +71,4 @@ See [Notices](NOTICE.md) for ownership, dependency, and trademark information.
 
 ## Version
 
-Current release: **v0.1.5**
+Current release: **v1.6.0**

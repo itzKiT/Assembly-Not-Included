@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)]
     [string]$EngineRoot,
 
-    [string]$Version = "0.1.5"
+    [string]$Version = "1.6.0"
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,6 +18,9 @@ $releaseRoot = Join-Path $work "release"
 $packageRoot = Join-Path $releaseRoot "DriveBeyondHorizons\Content\Paks\LogicMods\AssemblyNotIncluded"
 $runtimeSource = Join-Path $repositoryRoot "Runtime\AssemblyNotIncluded"
 $runtimeTarget = Join-Path $releaseRoot "DriveBeyondHorizons\Binaries\Win64\ue4ss\Mods\AssemblyNotIncluded"
+$distributionRoot = Join-Path $repositoryRoot "Distribution\DriveBeyondHorizons"
+$distributionPackageRoot = Join-Path $distributionRoot "Content\Paks\LogicMods\AssemblyNotIncluded"
+$distributionRuntimeRoot = Join-Path $distributionRoot "Binaries\Win64\ue4ss\Mods\AssemblyNotIncluded"
 
 foreach ($required in @($projectFile, $runUat, $unrealPak)) {
     if (-not (Test-Path -LiteralPath $required)) {
@@ -70,7 +73,8 @@ if ($uatExitCode -ne 0) {
     throw "Unreal cook failed with exit code $uatExitCode."
 }
 
-$cookedRoot = Join-Path $projectRoot "Saved\Cooked\Windows\AssemblyNotIncluded"
+$cookedPlatformRoot = Join-Path $projectRoot "Saved\Cooked\Windows"
+$cookedRoot = Join-Path $cookedPlatformRoot "AssemblyNotIncluded"
 $metadata = Join-Path $cookedRoot "Metadata"
 $responseFile = Join-Path $work "AssemblyNotIncluded.response.txt"
 $commandsFile = Join-Path $work "AssemblyNotIncluded.commands.txt"
@@ -98,7 +102,7 @@ Set-Content -LiteralPath $emptyResponse -Value "" -Encoding ASCII
 
 & $unrealPak `
     "-CreateGlobalContainer=$globalContainer" `
-    "-CookedDirectory=$cookedRoot" `
+    "-CookedDirectory=$cookedPlatformRoot" `
     "-PackageStoreManifest=$(Join-Path $metadata 'packagestore.manifest')" `
     "-Commands=$commandsFile" `
     "-ScriptObjects=$(Join-Path $metadata 'scriptobjects.bin')" `
@@ -136,6 +140,25 @@ $actual = Get-ChildItem -LiteralPath $packageRoot -File | Select-Object -ExpandP
 if (Compare-Object -ReferenceObject $expected -DifferenceObject $actual) {
     throw "The generated logic-mod package contains unexpected or missing files."
 }
+
+$minimumPackageSizes = @{
+    "AssemblyNotIncluded.pak" = 300
+    "AssemblyNotIncluded.ucas" = 1024
+    "AssemblyNotIncluded.utoc" = 256
+}
+foreach ($entry in $minimumPackageSizes.GetEnumerator()) {
+    $packageFile = Join-Path $packageRoot $entry.Key
+    if ((Get-Item -LiteralPath $packageFile).Length -lt $entry.Value) {
+        throw "Generated package is unexpectedly empty or truncated: $($entry.Key)"
+    }
+}
+
+# Keep the tested deployment tree identical to the package being archived.
+New-Item -ItemType Directory -Path $distributionPackageRoot, $distributionRuntimeRoot -Force | Out-Null
+foreach ($name in $expected) {
+    Copy-Item -LiteralPath (Join-Path $packageRoot $name) -Destination (Join-Path $distributionPackageRoot $name) -Force
+}
+Copy-Item -Path (Join-Path $runtimeSource "*") -Destination $distributionRuntimeRoot -Recurse -Force
 
 $zip = Join-Path $artifacts "AssemblyNotIncluded-v$Version.zip"
 Compress-Archive -Path (Join-Path $releaseRoot "*") -DestinationPath $zip -CompressionLevel Optimal

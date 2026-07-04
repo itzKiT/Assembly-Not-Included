@@ -13,7 +13,6 @@
 #include "Components/ScrollBox.h"
 #include "Components/SizeBox.h"
 #include "Components/Slider.h"
-#include "Components/Spacer.h"
 #include "Components/TextBlock.h"
 #include "Components/VerticalBox.h"
 #include "Components/VerticalBoxSlot.h"
@@ -27,7 +26,6 @@
 #include "EdGraphSchema_K2.h"
 #include "Misc/CommandLine.h"
 #include "Misc/Parse.h"
-#include "Misc/Paths.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -91,6 +89,7 @@ UButton* MakeButton(UWidgetTree* Tree, UWrapBox* Row, const FName Name, const FS
         Label,
         16,
         FLinearColor(1.0f, 0.94f, 0.97f, 1.0f));
+    Caption->bIsVariable = true;
     Caption->SetJustification(ETextJustify::Center);
     Button->AddChild(Caption);
 
@@ -100,29 +99,6 @@ UButton* MakeButton(UWidgetTree* Tree, UWrapBox* Row, const FName Name, const FS
     Slot->SetVerticalAlignment(VAlign_Fill);
     Slot->SetFillSpanWhenLessThan(240.0f);
     return Button;
-}
-
-UWrapBox* AddSection(UWidgetTree* Tree, UVerticalBox* Content, const FString& Id, const FString& Label)
-{
-    UBorder* Header = Tree->ConstructWidget<UBorder>(
-        UBorder::StaticClass(),
-        FName(*(TEXT("Section_") + Id)));
-    Header->SetBrushColor(FLinearColor(0.07f, 0.005f, 0.035f, 1.0f));
-    Header->SetPadding(FMargin(10.0f, 7.0f));
-    Header->AddChild(MakeText(
-        Tree,
-        FName(*(TEXT("SectionLabel_") + Id)),
-        Label,
-        21,
-        FLinearColor(1.0f, 0.18f, 0.58f, 1.0f)));
-    AddVertical(Content, Header, FMargin(0.0f, 10.0f, 0.0f, 3.0f));
-
-    UWrapBox* Row = Tree->ConstructWidget<UWrapBox>(
-        UWrapBox::StaticClass(),
-        FName(*(TEXT("Wrap_") + Id)));
-    Row->SetInnerSlotPadding(FVector2D(3.0f, 3.0f));
-    AddVertical(Content, Row);
-    return Row;
 }
 
 void AddButtons(UWidgetTree* Tree, UWrapBox* Row, const TArray<TPair<FString, FString>>& Buttons)
@@ -345,7 +321,7 @@ UWidgetBlueprint* CreateMenuWidget()
     UTextBlock* Subtitle = MakeText(
         Tree,
         TEXT("Subtitle"),
-        TEXT("GARAGE CONSOLE   |   F7"),
+        TEXT("F7"),
         13,
         FLinearColor(0.78f, 0.64f, 0.71f, 1.0f));
     Subtitle->SetJustification(ETextJustify::Center);
@@ -374,10 +350,21 @@ UWidgetBlueprint* CreateMenuWidget()
     UWrapBox* Paint = AddCollapsible(
         Tree, Content, TEXT("Paint"), TEXT("PAINT STUDIO"));
     AddButtons(Tree, Paint, {
-        {TEXT("Btn_OpenPaintStudio"), TEXT("Color & Finish Mixer")},
+        {TEXT("Btn_OpenPaintStudio"), TEXT("CHOOSE COLOR & SPAWN  |  AUTO-SAVES")},
         {TEXT("Btn_PaintStandard"), TEXT("Next Can: Standard")},
         {TEXT("Btn_PaintInfinite"), TEXT("Next Can: Infinite")},
         {TEXT("Btn_InfinitePaint"), TEXT("Max Existing Cans")}
+    });
+    AddButtons(Tree, Paint, {
+        {TEXT("Btn_PaintSwatch1"), TEXT("SAVED 1  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch2"), TEXT("SAVED 2  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch3"), TEXT("SAVED 3  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch4"), TEXT("SAVED 4  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch5"), TEXT("SAVED 5  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch6"), TEXT("SAVED 6  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch7"), TEXT("SAVED 7  |  EMPTY")},
+        {TEXT("Btn_PaintSwatch8"), TEXT("SAVED 8  |  EMPTY")},
+        {TEXT("Btn_ClearPaintSwatches"), TEXT("Clear Saved Swatches")}
     });
 
     UWrapBox* Vehicles = AddCollapsible(

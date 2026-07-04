@@ -36,7 +36,7 @@ The script:
 2. Cooks only the Assembly Not Included assets.
 3. Builds a minimal IoStore logic-mod container.
 4. Combines the container with the runtime tested against the [zDEV UE4SS experimental-latest build](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest).
-5. Produces `artifacts\AssemblyNotIncluded-v0.1.5.zip`.
+5. Produces `artifacts\AssemblyNotIncluded-v1.6.0.zip`.
 6. Rejects unexpected package files or inconsistent identifiers.
 
 The project source does not include game assets, UE4SS, or the signature-bypass files.

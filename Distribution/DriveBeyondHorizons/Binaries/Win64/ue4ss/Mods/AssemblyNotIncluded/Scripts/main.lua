@@ -3,13 +3,15 @@ local MENU_ASSET = "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncluded"
 local SPEEDOMETER_ASSET =
     "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer"
 local ITEM_MENU_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu"
-local ITEM_ELEMENT_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerElement"
 local ITEM_CATALOG_TILE_WIDTH = 220
 local ITEM_CATALOG_GRID_X_OFFSET = -24
 local PAINT_MENU_ASSET = "/Game/UI/PaintBombMenu/SprayCanSpawnMenu"
+local PAINT_CAN_ASSET = "/Game/BP/Items/Movable/PaintBomb/PaintBomb"
 local UEHelpers = require("UEHelpers")
 
 local menu_widget = nil
+local asset_class_cache = {}
+local cached_player_controller = nil
 local item_widget = nil
 local paint_widget = nil
 local speedometer_widget = nil
@@ -19,6 +21,8 @@ local speedometer_last_error = nil
 local speedometer_tick_hooked = false
 local speedometer_elapsed = 0.0
 local speedometer_visible = false
+local vehicle_tick_source = nil
+local vehicle_hook_elapsed = 0.0
 local vehicle_tuning_baselines = {}
 local vehicle_tuning_elapsed = 0.0
 local vehicle_tuning_last_error = nil
@@ -28,59 +32,27 @@ local vehicle_tuning_save_elapsed = 0.0
 local vehicle_tank_maximums = {}
 local sync_vehicle_tuning_controls = nil
 local flush_vehicle_tunes = nil
+local finalize_spawned_vehicle = nil
 local menu_open = false
 local speed_enabled = false
 local jump_enabled = false
 local vehicle_invulnerability = {}
-local original_walk_speed = nil
-local original_acceleration = nil
-local original_jump_velocity = nil
 local player_modifier_baseline = nil
 local player_modifier_loop_token = 0
 local surface_action_running = false
 local surface_action_token = 0
 local menu_actions = {}
-local item_process_hooked = false
 local item_click_hooked = false
 local item_layout_hooked = false
-local catalog_assets_preloaded = false
-local catalog_entries = {}
-local catalog_refresh_token = 0
-local catalog_rendering = false
-local CATALOG_BROWSE_LIMIT = 384
-local CATALOG_SEARCH_LIMIT = 512
 local paint_infinite_next = false
 local paint_watch_token = 0
 local expanded_section = nil
 local input_restore_token = 0
 ANI_ToolState = {
     infinite_brushes_enabled = false,
-    brush_service_token = 0,
-}
-
-local ITEM_CATALOG_ALLOW_PATHS = {
-    "/game/bp/carsv2/system/actors/",
-    "/game/bp/items/movable/food/",
-    "/game/bp/items/movable/bottle/",
-    "/game/bp/items/movable/money/",
-    "/game/bp/items/movable/weapons/",
-    "/game/bp/items/movable/bazooka/",
-    "/game/bp/items/movable/wearable/",
-    "/game/bp/items/movable/tankcontainer/",
-    "/game/bp/items/movable/tools/",
-    "/game/bp/items/movable/spray_can/",
-    "/game/bp/items/movable/bullets/",
-    "/game/bp/items/movable/medkit/",
-    "/game/bp/items/movable/backpack/",
-    "/game/bp/items/movable/binocular/",
-    "/game/bp/items/movable/glowstick/",
-    "/game/bp/items/movable/radio/",
-    "/game/bp/items/movable/activableinhand/",
-    "/game/bp/items/movable/attachable/",
-    "/game/bp/items/movable/tankrope/",
-    "/game/bp/items/movable/baseball/",
-    "/game/bp/items/movable/casetoopen/",
-    "/game/bp/items/movable/backroomitem/",
+    paint_swatches = {},
+    paint_swatch_limit = 8,
+    paint_studio_opening = false,
 }
 
 local VEHICLES = {
@@ -118,10 +90,19 @@ local function valid(object)
 end
 
 local function get_pc()
+    if valid(cached_player_controller) then
+        return cached_player_controller
+    end
     local pc = FindFirstOf("PlayerControllerBase_C")
-    if valid(pc) then return pc end
+    if valid(pc) then
+        cached_player_controller = pc
+        return pc
+    end
     pc = FindFirstOf("PlayerController")
-    if valid(pc) then return pc end
+    if valid(pc) then
+        cached_player_controller = pc
+        return pc
+    end
     return nil
 end
 
@@ -173,14 +154,33 @@ local function show_message(message)
 end
 
 local function class_from_asset(path)
-    LoadAsset(path)
+    local cached = asset_class_cache[path]
+    if valid(cached) then return cached end
     local name = path:match("([^/]+)$")
-    local class = StaticFindObject(path .. "." .. name .. "_C")
-    if valid(class) then return class end
-    class = StaticFindObject("WidgetBlueprintGeneratedClass " .. path .. "." .. name .. "_C")
-    if valid(class) then return class end
-    class = StaticFindObject("BlueprintGeneratedClass " .. path .. "." .. name .. "_C")
-    if valid(class) then return class end
+    local function find_class()
+        local class = StaticFindObject(path .. "." .. name .. "_C")
+        if valid(class) then return class end
+        class = StaticFindObject(
+            "WidgetBlueprintGeneratedClass " .. path .. "." .. name .. "_C")
+        if valid(class) then return class end
+        class = StaticFindObject(
+            "BlueprintGeneratedClass " .. path .. "." .. name .. "_C")
+        if valid(class) then return class end
+        return nil
+    end
+
+    local class = find_class()
+    if valid(class) then
+        asset_class_cache[path] = class
+        return class
+    end
+
+    LoadAsset(path)
+    class = find_class()
+    if valid(class) then
+        asset_class_cache[path] = class
+        return class
+    end
 
     local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
     if valid(helpers) then
@@ -190,7 +190,10 @@ local function class_from_asset(path)
                 AssetName = UEHelpers.FindOrAddFName(name .. "_C"),
             })
         end)
-        if ok and valid(loaded_class) then return loaded_class end
+        if ok and valid(loaded_class) then
+            asset_class_cache[path] = loaded_class
+            return loaded_class
+        end
     end
     log("Class load failed: " .. path)
     return nil
@@ -289,6 +292,78 @@ local function update_paint_mode_buttons()
     end
 end
 
+function ANI_ToolState.sync_paint_swatch_buttons()
+    if not valid(menu_widget) then return end
+    local mixer = find_named_widget(
+        menu_widget, "Btn_OpenPaintStudio")
+    local mixer_label = find_named_widget(
+        menu_widget, "Btn_OpenPaintStudio_Label")
+    if not valid(mixer_label) and valid(mixer) then
+        pcall(function() mixer_label = mixer:GetChildAt(0) end)
+        if not valid(mixer_label) then
+            pcall(function() mixer_label = mixer:GetContent() end)
+        end
+    end
+    if valid(mixer_label) then
+        pcall(function()
+            mixer_label:SetText(FText(
+                "CHOOSE COLOR & SPAWN  |  AUTO-SAVES"))
+        end)
+    end
+
+    for index = 1, ANI_ToolState.paint_swatch_limit do
+        local button = find_named_widget(
+            menu_widget, "Btn_PaintSwatch" .. tostring(index))
+        local label = find_named_widget(
+            menu_widget, "Btn_PaintSwatch" .. tostring(index) .. "_Label")
+        if not valid(label) and valid(button) then
+            pcall(function() label = button:GetChildAt(0) end)
+            if not valid(label) then
+                pcall(function() label = button:GetContent() end)
+            end
+        end
+        local swatch = ANI_ToolState.paint_swatches[index]
+        if valid(button) then
+            pcall(function()
+                button:SetVisibility(swatch and 0 or 1)
+            end)
+            if swatch then
+                pcall(function()
+                    button:SetBackgroundColor({
+                        R = 0.05 + 0.55 * swatch.r,
+                        G = 0.05 + 0.55 * swatch.g,
+                        B = 0.05 + 0.55 * swatch.b,
+                        A = 1.0,
+                    })
+                end)
+            else
+                pcall(function()
+                    button:SetBackgroundColor({
+                        R = 0.055, G = 0.035, B = 0.05, A = 1.0,
+                    })
+                end)
+            end
+        end
+        if valid(label) then
+            local finish = swatch and
+                (swatch.metallic >= 0.5 and "METALLIC" or "STANDARD") or
+                "EMPTY"
+            pcall(function()
+                label:SetText(FText(
+                    "SAVED " .. tostring(index) .. "  |  " .. finish))
+            end)
+        end
+    end
+    local clear = find_named_widget(
+        menu_widget, "Btn_ClearPaintSwatches")
+    if valid(clear) then
+        pcall(function()
+            clear:SetVisibility(
+                #ANI_ToolState.paint_swatches > 0 and 0 or 1)
+        end)
+    end
+end
+
 local function set_expanded_section(section)
     expanded_section = expanded_section == section and nil or section
     for key, panel_name in pairs(SECTION_PANELS) do
@@ -323,6 +398,7 @@ local function bind_menu_buttons(widget)
 end
 
 local function open_menu()
+    log("Menu open requested.")
     if menu_open then
         close_menu()
         return
@@ -331,16 +407,23 @@ local function open_menu()
         pcall(function() paint_widget:RemoveFromParent() end)
         paint_widget = nil
     end
+    log("Resolving main menu widget.")
     menu_widget = create_widget(MENU_ASSET)
     if not valid(menu_widget) then
         show_message("Menu asset was not loaded. Check Assembly Not Included package installation.")
         return
     end
+    log("Main menu widget created.")
     local indexed = bind_menu_buttons(menu_widget)
     if indexed == 0 then
         show_message("Menu buttons could not be connected to the Assembly Not Included bridge.")
     end
+    local subtitle = find_named_widget(menu_widget, "Subtitle")
+    if valid(subtitle) then
+        pcall(function() subtitle:SetText(FText("F7")) end)
+    end
     update_paint_mode_buttons()
+    ANI_ToolState.sync_paint_swatch_buttons()
     expanded_section = nil
     for _, panel_name in pairs(SECTION_PANELS) do
         local panel = find_named_widget(menu_widget, panel_name)
@@ -359,163 +442,7 @@ local function open_menu()
     if sync_vehicle_tuning_controls then
         pcall(sync_vehicle_tuning_controls)
     end
-    log("Assembly Not Included garage console opened successfully.")
-end
-
-local function catalog_class_name(element)
-    if not valid(element) then return "" end
-    local ok, item_class = pcall(function() return element.ItemToSpawn end)
-    if not ok or not valid(item_class) then return "" end
-    local name_ok, name = pcall(function() return item_class:GetFullName() end)
-    return name_ok and string.lower(tostring(name)) or ""
-end
-
-local function catalog_class_allowed(class_name)
-    for _, path in ipairs(ITEM_CATALOG_ALLOW_PATHS) do
-        if string.find(class_name, path, 1, true) then return true end
-    end
-    return false
-end
-
-local function should_exclude_catalog_element(element)
-    local class_name = catalog_class_name(element)
-    if class_name == "" then return true end
-    return not catalog_class_allowed(class_name)
-end
-
-local function asset_field_string(field)
-    local ok, value = pcall(function() return field:get():ToString() end)
-    if ok then return tostring(value) end
-    ok, value = pcall(function() return field:ToString() end)
-    return ok and tostring(value) or tostring(field)
-end
-
-local function is_catalog_template(package_name, asset_name)
-    local lower_name = string.lower(asset_name)
-    return string.find(package_name, "/master/", 1, true) ~= nil
-        or string.sub(lower_name, -6) == "master"
-        or string.find(lower_name, "projectile", 1, true) ~= nil
-        or string.sub(lower_name, 1, 6) == "debug_"
-end
-
-local function preload_catalog_assets()
-    if catalog_assets_preloaded then return end
-
-    local helpers = StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
-    if not valid(helpers) then
-        log("Asset registry helpers are unavailable; using already loaded catalog classes.")
-        return
-    end
-    local registry_ok, registry = pcall(function() return helpers:GetAssetRegistry() end)
-    if not registry_ok or not valid(registry) then
-        log("Asset registry is unavailable; using already loaded catalog classes.")
-        return
-    end
-    pcall(function() registry:WaitForCompletion() end)
-
-    local loaded = 0
-    local found = 0
-    local seen = {}
-    for _, root_path in ipairs({
-        "/Game/BP/CarsV2/System/Actors",
-        "/Game/BP/Items",
-    }) do
-        local assets = {}
-        local query_ok, query_result = pcall(function()
-            return registry:GetAssetsByPath(
-                UEHelpers.FindOrAddFName(root_path),
-                assets,
-                true,
-                false
-            )
-        end)
-        if query_ok and query_result then
-            for _, wrapped in ipairs(assets) do
-                local data = wrapped
-                pcall(function() data = data:get() end)
-
-                local package_name = ""
-                local asset_type = ""
-                local asset_name = ""
-                pcall(function() package_name = string.lower(asset_field_string(data.PackageName)) end)
-                pcall(function() asset_type = asset_field_string(data.AssetClassPath.AssetName) end)
-                pcall(function() asset_name = asset_field_string(data.AssetName) end)
-                asset_name = string.gsub(asset_name, "_C$", "")
-
-                if asset_type == "BlueprintGeneratedClass"
-                    and catalog_class_allowed(package_name)
-                    and not is_catalog_template(package_name, asset_name) then
-                    found = found + 1
-                    local load_ok, asset = pcall(function() return helpers:GetAsset(data) end)
-                    if load_ok and valid(asset) then
-                        local identity = asset:GetFullName()
-                        if not seen[identity] then
-                            seen[identity] = true
-                            table.insert(catalog_entries, {
-                                class = asset,
-                                name = asset_name,
-                                search = string.lower(asset_name .. " " .. package_name),
-                            })
-                            loaded = loaded + 1
-                        end
-                    end
-                end
-            end
-        end
-    end
-
-    table.sort(catalog_entries, function(left, right)
-        return left.name:lower() < right.name:lower()
-    end)
-
-    local family_counts = {
-        Escada = 0,
-        FrenchUtility = 0,
-        GermanCompact = 0,
-        JapaneseSporty = 0,
-        MuscleCar = 0,
-        Peak = 0,
-        Speedle = 0,
-    }
-    for _, entry in ipairs(catalog_entries) do
-        if string.find(entry.search, "escada", 1, true) then
-            family_counts.Escada = family_counts.Escada + 1
-        end
-        if string.find(entry.search, "frenchutility", 1, true) then
-            family_counts.FrenchUtility = family_counts.FrenchUtility + 1
-        end
-        if string.find(entry.search, "germancompact", 1, true) then
-            family_counts.GermanCompact = family_counts.GermanCompact + 1
-        end
-        if string.find(entry.search, "japanesesporty", 1, true) then
-            family_counts.JapaneseSporty = family_counts.JapaneseSporty + 1
-        end
-        if string.find(entry.search, "musclecar", 1, true) then
-            family_counts.MuscleCar = family_counts.MuscleCar + 1
-        end
-        if string.find(entry.search, "poyopapapapa", 1, true) or
-            string.find(entry.search, "peak", 1, true) then
-            family_counts.Peak = family_counts.Peak + 1
-        end
-        if string.find(entry.search, "speedle", 1, true) then
-            family_counts.Speedle = family_counts.Speedle + 1
-        end
-    end
-
-    catalog_assets_preloaded = true
-    log("Catalog preload complete: " .. tostring(loaded) .. "/" .. tostring(found) ..
-        " useful item and vehicle-part classes loaded.")
-    log(string.format(
-        "New vehicle part coverage: Escada=%d, P-51=%d, Loft=%d, Kage=%d, " ..
-        "Tomahawk=%d, Peak=%d, Speedle=%d.",
-        family_counts.Escada,
-        family_counts.FrenchUtility,
-        family_counts.GermanCompact,
-        family_counts.JapaneseSporty,
-        family_counts.MuscleCar,
-        family_counts.Peak,
-        family_counts.Speedle
-    ))
+    log("Assembly Not Included opened successfully.")
 end
 
 local function fit_item_catalog_to_viewport(widget)
@@ -573,127 +500,6 @@ local function configure_native_item_catalog_layout(widget)
     return size_ok
 end
 
-local function filter_item_catalog(widget)
-    if not valid(widget) or widget ~= item_widget then return end
-    if catalog_rendering then return end
-    local grid_ok, grid = pcall(function() return widget.Grid end)
-    if not grid_ok or not valid(grid) then return end
-
-    local query = ""
-    pcall(function()
-        query = string.lower(widget.EditableText_80:GetText():ToString())
-    end)
-    local search_box = nil
-    pcall(function() search_box = widget.EditableText_80 end)
-    if valid(search_box) then
-        pcall(function() search_box:SetIsEnabled(false) end)
-    end
-
-    local pc = get_pc()
-    local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-    local element_class = class_from_asset(ITEM_ELEMENT_ASSET)
-    if not valid(pc) or not valid(library) or not valid(element_class) then
-        log("Catalog element factory is unavailable.")
-        if valid(search_box) then
-            pcall(function() search_box:SetIsEnabled(true) end)
-        end
-        return
-    end
-
-    catalog_rendering = true
-    local shown = 0
-    local matched = 0
-    local render_limit = query == "" and CATALOG_BROWSE_LIMIT or CATALOG_SEARCH_LIMIT
-    local render_ok, render_error = pcall(function()
-        local columns = fit_item_catalog_to_viewport(widget)
-        grid:ClearChildren()
-        for _, entry in ipairs(catalog_entries) do
-            if query == "" or string.find(entry.search, query, 1, true) then
-                matched = matched + 1
-                if shown < render_limit then
-                    local element = library:Create(pc, element_class, pc)
-                    if valid(element) then
-                        element.ItemToSpawn = entry.class
-                        element.Parent = widget
-                        element.Size = 200
-
-                        local row = math.floor(shown / columns)
-                        local column = shown % columns
-                        local slot = grid:AddChildToGrid(element, row, column)
-                        if valid(slot) then
-                            pcall(function() slot:SetHorizontalAlignment(3) end)
-                            pcall(function() slot:SetVerticalAlignment(3) end)
-                        end
-                        pcall(function()
-                            element.ItemName:SetAutoWrapText(true)
-                            local font = element.ItemName:GetFont()
-                            font.Size = 12
-                            element.ItemName:SetFont(font)
-                        end)
-                        shown = shown + 1
-                    end
-                end
-            end
-        end
-    end)
-    catalog_rendering = false
-    if valid(search_box) then
-        pcall(function() search_box:SetIsEnabled(true) end)
-    end
-
-    if not render_ok then
-        log("Catalog refresh stopped safely: " .. tostring(render_error))
-        return
-    end
-
-    local limited = matched > shown and
-        (" Showing the first " .. tostring(shown) .. "; refine the search for the rest.") or ""
-    log("Useful item catalog rendered: " .. tostring(shown) ..
-        "/" .. tostring(matched) .. " matching entries from " ..
-        tostring(#catalog_entries) .. " indexed." .. limited ..
-        (query ~= "" and (" Search: '" .. query .. "'.") or ""))
-end
-
-local function schedule_catalog_refresh(widget, delay_ms)
-    if not valid(widget) then return end
-    catalog_refresh_token = catalog_refresh_token + 1
-    local refresh_token = catalog_refresh_token
-    ExecuteWithDelay(delay_ms or 450, function()
-        ExecuteInGameThread(function()
-            if refresh_token == catalog_refresh_token
-                and valid(item_widget)
-                and widget == item_widget then
-                filter_item_catalog(widget)
-            end
-        end)
-    end)
-end
-
-local function ensure_item_catalog_hook()
-    if item_process_hooked then return end
-    local ok, pre_id = pcall(function()
-        return RegisterHook(
-            "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu.ItemSpawnerMenu_C:" ..
-            "BndEvt__ItemSpawnerMenu_EditableText_80_K2Node_ComponentBoundEvent_1_" ..
-            "OnEditableTextChangedEvent__DelegateSignature",
-            function(context)
-                local widget_ok, refreshed_widget = pcall(function() return context:get() end)
-                if not widget_ok or not valid(refreshed_widget) then return end
-                -- UE4SS may return a fresh Lua wrapper for the same UObject.
-                -- Use the bridge-owned reference so wrapper identity cannot
-                -- suppress a valid search refresh.
-                schedule_catalog_refresh(item_widget, 500)
-            end
-        )
-    end)
-    if ok and pre_id then
-        item_process_hooked = true
-        log("Debounced item search filter installed.")
-    else
-        log("Native item catalog refresh hook was unavailable.")
-    end
-end
-
 local function ensure_item_catalog_layout_hook()
     if item_layout_hooked then return end
     local ok, hook_id = pcall(function()
@@ -716,8 +522,6 @@ local function ensure_item_catalog_layout_hook()
 end
 
 local function close_item_catalog()
-    catalog_refresh_token = catalog_refresh_token + 1
-    catalog_rendering = false
     if valid(item_widget) then
         pcall(function() item_widget:RemoveFromParent() end)
     end
@@ -735,6 +539,16 @@ local function ensure_item_click_hook()
         return RegisterHook(click_function, function()
             ExecuteWithDelay(125, function()
                 ExecuteInGameThread(close_item_catalog)
+            end)
+            ExecuteWithDelay(250, function()
+                ExecuteInGameThread(function()
+                    local changed =
+                        ANI_ToolState.service_brush_durability()
+                    if changed > 0 then
+                        log("Normalized " .. tostring(changed) ..
+                            " brush object(s) after item spawn.")
+                    end
+                end)
             end)
         end)
     end)
@@ -778,6 +592,7 @@ end
 
 local function close_paint_studio()
     paint_watch_token = paint_watch_token + 1
+    ANI_ToolState.paint_studio_opening = false
     if valid(paint_widget) then
         pcall(function() paint_widget:RemoveFromParent() end)
     end
@@ -856,6 +671,189 @@ function ANI_ToolState.stabilize_paint_capacity(object, make_infinite)
     end
 end
 
+function ANI_ToolState.paint_swatch_path()
+    if not os or not os.getenv then return nil end
+    local local_app_data = os.getenv("LOCALAPPDATA")
+    if not local_app_data or local_app_data == "" then return nil end
+    return local_app_data ..
+        "\\DriveBeyondHorizons\\Saved\\AssemblyNotIncludedPaintSwatches.ini"
+end
+
+function ANI_ToolState.paint_number(value)
+    if value == nil then return nil end
+    local number = tonumber(value)
+    if number then return number end
+    local ok, unwrapped = pcall(function() return value:get() end)
+    if ok then return tonumber(unwrapped) end
+    return nil
+end
+
+function ANI_ToolState.paint_component(color, name)
+    if color == nil then return nil end
+    local ok, value = pcall(function() return color[name] end)
+    if ok then
+        local number = ANI_ToolState.paint_number(value)
+        if number then return number end
+    end
+    ok, color = pcall(function() return color:get() end)
+    if not ok or color == nil then return nil end
+    ok, value = pcall(function() return color[name] end)
+    if not ok then return nil end
+    return ANI_ToolState.paint_number(value)
+end
+
+function ANI_ToolState.normalize_paint_swatch(
+    red, green, blue, alpha, metallic)
+    local function limited(value, fallback)
+        value = tonumber(value)
+        if value == nil then value = fallback end
+        return math.max(0.0, math.min(1.0, value))
+    end
+    return {
+        r = limited(red, 0.0),
+        g = limited(green, 0.0),
+        b = limited(blue, 0.0),
+        a = limited(alpha, 1.0),
+        metallic = limited(metallic, 0.0),
+    }
+end
+
+function ANI_ToolState.paint_swatch_key(swatch)
+    return string.format(
+        "%.4f|%.4f|%.4f|%.4f|%.4f",
+        swatch.r, swatch.g, swatch.b, swatch.a, swatch.metallic)
+end
+
+function ANI_ToolState.flush_paint_swatches()
+    if not io or not io.open then return false end
+    local path = ANI_ToolState.paint_swatch_path()
+    if not path then return false end
+    local file, error_message = io.open(path, "w")
+    if not file then
+        log("Paint swatch persistence error: " .. tostring(error_message))
+        return false
+    end
+    for index = 1, math.min(
+        #ANI_ToolState.paint_swatches,
+        ANI_ToolState.paint_swatch_limit) do
+        local swatch = ANI_ToolState.paint_swatches[index]
+        file:write(string.format(
+            "%.9f|%.9f|%.9f|%.9f|%.9f\n",
+            swatch.r,
+            swatch.g,
+            swatch.b,
+            swatch.a,
+            swatch.metallic))
+    end
+    file:close()
+    return true
+end
+
+function ANI_ToolState.load_paint_swatches()
+    if not io or not io.open then return end
+    local path = ANI_ToolState.paint_swatch_path()
+    if not path then return end
+    local file = io.open(path, "r")
+    if not file then return end
+    ANI_ToolState.paint_swatches = {}
+    for line in file:lines() do
+        local red, green, blue, alpha, metallic =
+            line:match(
+                "^([%d%.%-]+)|([%d%.%-]+)|([%d%.%-]+)|" ..
+                "([%d%.%-]+)|([%d%.%-]+)$")
+        if red then
+            table.insert(
+                ANI_ToolState.paint_swatches,
+                ANI_ToolState.normalize_paint_swatch(
+                    red, green, blue, alpha, metallic))
+            if #ANI_ToolState.paint_swatches >=
+                ANI_ToolState.paint_swatch_limit then
+                break
+            end
+        end
+    end
+    file:close()
+    if #ANI_ToolState.paint_swatches > 0 then
+        log("Loaded " .. tostring(#ANI_ToolState.paint_swatches) ..
+            " persistent paint swatch(es).")
+    end
+end
+
+function ANI_ToolState.remember_paint_swatch(swatch)
+    if not swatch then return false end
+    local key = ANI_ToolState.paint_swatch_key(swatch)
+    for index = #ANI_ToolState.paint_swatches, 1, -1 do
+        if ANI_ToolState.paint_swatch_key(
+            ANI_ToolState.paint_swatches[index]) == key then
+            table.remove(ANI_ToolState.paint_swatches, index)
+        end
+    end
+    table.insert(ANI_ToolState.paint_swatches, 1, swatch)
+    while #ANI_ToolState.paint_swatches >
+        ANI_ToolState.paint_swatch_limit do
+        table.remove(ANI_ToolState.paint_swatches)
+    end
+    ANI_ToolState.flush_paint_swatches()
+    ANI_ToolState.sync_paint_swatch_buttons()
+    return true
+end
+
+function ANI_ToolState.paint_swatch_from_can(object)
+    if not valid(object) then return nil end
+    local use_custom = false
+    pcall(function()
+        local value = object.UseCustomColor
+        local ok, unwrapped = pcall(function() return value:get() end)
+        use_custom = (ok and unwrapped or value) == true
+    end)
+
+    local color = nil
+    local color_names = use_custom and
+        {"CustomColor", "Color"} or {"Color", "CustomColor"}
+    for _, name in ipairs(color_names) do
+        local ok, candidate = pcall(function() return object[name] end)
+        if ok and candidate ~= nil and
+            ANI_ToolState.paint_component(candidate, "R") ~= nil then
+            color = candidate
+            break
+        end
+    end
+    if color == nil then return nil end
+
+    local metallic = nil
+    local metallic_names = use_custom and
+        {"CustomMetallic", "Metallic"} or {"Metallic", "CustomMetallic"}
+    for _, name in ipairs(metallic_names) do
+        local ok, value = pcall(function() return object[name] end)
+        if ok then
+            metallic = ANI_ToolState.paint_number(value)
+            if metallic ~= nil then break end
+        end
+    end
+    return ANI_ToolState.normalize_paint_swatch(
+        ANI_ToolState.paint_component(color, "R"),
+        ANI_ToolState.paint_component(color, "G"),
+        ANI_ToolState.paint_component(color, "B"),
+        ANI_ToolState.paint_component(color, "A"),
+        metallic)
+end
+
+function ANI_ToolState.capture_paint_can_swatch(object)
+    local swatch = ANI_ToolState.paint_swatch_from_can(object)
+    if swatch then
+        ANI_ToolState.remember_paint_swatch(swatch)
+    end
+end
+
+function ANI_ToolState.clear_paint_swatches()
+    ANI_ToolState.paint_swatches = {}
+    ANI_ToolState.flush_paint_swatches()
+    ANI_ToolState.sync_paint_swatch_buttons()
+    show_message("Saved paint swatches cleared.")
+end
+
+ANI_ToolState.load_paint_swatches()
+
 local function process_new_paint_cans(existing, make_infinite)
     local changed = 0
     local ok, objects = pcall(function() return FindAllOf("PaintBomb_C") end)
@@ -866,6 +864,7 @@ local function process_new_paint_cans(existing, make_infinite)
             if id_ok and not existing[tostring(id)] then
                 ANI_ToolState.stabilize_paint_capacity(
                     object, make_infinite)
+                ANI_ToolState.capture_paint_can_swatch(object)
                 changed = changed + 1
             end
         end
@@ -909,25 +908,47 @@ local function watch_paint_studio(token, existing, remaining)
 end
 
 local function open_paint_studio()
-    close_menu()
-    local existing = loaded_paint_can_ids()
-    paint_widget = create_widget(PAINT_MENU_ASSET)
-    if not valid(paint_widget) then
-        show_message("The game's paint color mixer could not be opened.")
+    if ANI_ToolState.paint_studio_opening or valid(paint_widget) then
+        log("Ignored duplicate paint studio open request.")
         return
     end
-    paint_widget:AddToViewport(10001)
-    local pc = get_pc()
-    pc.bShowMouseCursor = true
-    local library = StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
-    if valid(library) then
-        pcall(function()
-            library:SetInputMode_UIOnlyEx(pc, paint_widget, 0, false)
+    ANI_ToolState.paint_studio_opening = true
+    close_menu()
+    log("Paint studio open scheduled.")
+    ExecuteWithDelay(125, function()
+        ExecuteInGameThread(function()
+            if not ANI_ToolState.paint_studio_opening then return end
+            local existing = loaded_paint_can_ids()
+            paint_widget = create_widget(PAINT_MENU_ASSET)
+            if not valid(paint_widget) then
+                ANI_ToolState.paint_studio_opening = false
+                show_message(
+                    "The game's paint color mixer could not be opened.")
+                restore_game_input()
+                return
+            end
+            paint_widget:AddToViewport(10001)
+            local pc = get_pc()
+            if valid(pc) then
+                pc.bShowMouseCursor = true
+            end
+            local library =
+                StaticFindObject(
+                    "/Script/UMG.Default__WidgetBlueprintLibrary")
+            if valid(library) and valid(pc) then
+                pcall(function()
+                    library:SetInputMode_UIOnlyEx(
+                        pc, paint_widget, 0, false)
+                end)
+            end
+            ANI_ToolState.paint_studio_opening = false
+            paint_watch_token = paint_watch_token + 1
+            watch_paint_studio(
+                paint_watch_token, existing, 36000)
+            log(
+                "Native paint color and finish mixer opened successfully.")
         end)
-    end
-    paint_watch_token = paint_watch_token + 1
-    watch_paint_studio(paint_watch_token, existing, 36000)
-    log("Native paint color and finish mixer opened successfully.")
+    end)
 end
 
 local function get_spawn_transform(distance)
@@ -943,6 +964,75 @@ local function get_spawn_transform(distance)
         Z = location.Z + 100,
     }
     return pawn:GetWorld(), spawn, {Pitch = 0, Yaw = yaw, Roll = 0}
+end
+
+local function spawn_saved_paint_swatch(index)
+    local swatch = ANI_ToolState.paint_swatches[index]
+    if not swatch then
+        log("Ignored empty paint swatch " .. tostring(index) .. ".")
+        return
+    end
+
+    close_menu()
+    local class = asset_class_cache[PAINT_CAN_ASSET]
+    if not valid(class) then
+        local existing = FindFirstOf("PaintBomb_C")
+        if valid(existing) then
+            local class_ok, loaded_class =
+                pcall(function() return existing:GetClass() end)
+            if class_ok and valid(loaded_class) then
+                class = loaded_class
+                asset_class_cache[PAINT_CAN_ASSET] = class
+            end
+        end
+    end
+    if not valid(class) then
+        class = class_from_asset(PAINT_CAN_ASSET)
+    end
+    local world, position, rotation = get_spawn_transform(180)
+    if not valid(class) then
+        show_message("The saved paint can class is unavailable.")
+        return
+    end
+    if not valid(world) then
+        show_message("The gameplay world is unavailable.")
+        return
+    end
+
+    local ok, can = pcall(function()
+        return world:SpawnActor(class, position, rotation)
+    end)
+    if not ok or not valid(can) then
+        show_message("The saved paint can could not be spawned.")
+        return
+    end
+
+    local color = {
+        R = swatch.r,
+        G = swatch.g,
+        B = swatch.b,
+        A = swatch.a,
+    }
+    local metallic = swatch.metallic >= 0.5 and 1.0 or 0.0
+    local color_written =
+        set_if_present(can, "Color", color)
+    color_written =
+        set_if_present(can, "CustomColor", color) or color_written
+    set_if_present(can, "UseCustomColor", true)
+    set_if_present(can, "Metallic", metallic)
+    set_if_present(can, "CustomMetallic", metallic)
+    call_if_present(can, "OnRep_Color")
+    call_if_present(can, "OnRep_Metallic")
+    ANI_ToolState.stabilize_paint_capacity(can, paint_infinite_next)
+
+    if color_written then
+        show_message(string.format(
+            "Spawned saved paint %d (%s).",
+            index,
+            metallic >= 0.5 and "metallic" or "standard"))
+    else
+        show_message("The paint can spawned, but its color property was unavailable.")
+    end
 end
 
 local function spawn_complete_vehicle(key)
@@ -975,6 +1065,18 @@ local function spawn_complete_vehicle(key)
 
     if ok and valid(vehicle) then
         show_message("Spawned complete vehicle: " .. key)
+        if finalize_spawned_vehicle then
+            ExecuteWithDelay(500, function()
+                ExecuteInGameThread(function()
+                    finalize_spawned_vehicle(vehicle)
+                end)
+            end)
+            ExecuteWithDelay(1500, function()
+                ExecuteInGameThread(function()
+                    finalize_spawned_vehicle(vehicle)
+                end)
+            end)
+        end
     else
         show_message("Could not spawn vehicle: " .. key)
     end
@@ -1074,27 +1176,36 @@ function ANI_ToolState.service_brush_durability()
                         ANI_ToolState.positive_number_property(
                             object, "Quantity") or 0
                     local changed = false
+                    local make_infinite = false
+                    if ANI_ToolState.infinite_brushes_enabled then
+                        local distance =
+                            ANI_ToolState.distance_to_player(object)
+                        make_infinite =
+                            distance ~= nil and distance <= 175.0
+                    end
 
-                    -- Repair brushes polluted by the earlier bulk mutation.
-                    if maximum and maximum > stock then
+                    -- Only the brush currently carried by the player becomes
+                    -- effectively unlimited. The large quantity persists on
+                    -- that object, so no recurring global object scan is
+                    -- required while the player is moving.
+                    if make_infinite then
+                        if set_if_present(
+                            object, "MaxQuantity", 999999) then
+                            changed = true
+                        end
+                        if set_if_present(
+                            object, "Quantity", 999999) then
+                            changed = true
+                        end
+                    elseif maximum and maximum > stock then
                         if set_if_present(object, "MaxQuantity", stock) then
                             changed = true
                         end
-                    end
-                    if quantity > stock then
-                        if set_if_present(object, "Quantity", stock) then
+                        if quantity > stock and
+                            set_if_present(object, "Quantity", stock) then
                             changed = true
                         end
-                    end
-
-                    -- Infinity only refills the brush carried by the player.
-                    local distance =
-                        ANI_ToolState.distance_to_player(object)
-                    if ANI_ToolState.infinite_brushes_enabled and
-                        distance and distance <= 350.0 then
-                        if set_if_present(object, "MaxQuantity", stock) then
-                            changed = true
-                        end
+                    elseif quantity > stock then
                         if set_if_present(object, "Quantity", stock) then
                             changed = true
                         end
@@ -1111,24 +1222,10 @@ function ANI_ToolState.service_brush_durability()
     return repaired
 end
 
-function ANI_ToolState.schedule_brush_service(token)
-    ExecuteWithDelay(750, function()
-        ExecuteInGameThread(function()
-            if token ~= ANI_ToolState.brush_service_token then return end
-            ANI_ToolState.service_brush_durability()
-            ANI_ToolState.schedule_brush_service(token)
-        end)
-    end)
-end
-
 function ANI_ToolState.toggle_infinite_brushes()
     ANI_ToolState.infinite_brushes_enabled =
         not ANI_ToolState.infinite_brushes_enabled
-    ANI_ToolState.brush_service_token =
-        ANI_ToolState.brush_service_token + 1
     ANI_ToolState.service_brush_durability()
-    ANI_ToolState.schedule_brush_service(
-        ANI_ToolState.brush_service_token)
     if ANI_ToolState.infinite_brushes_enabled then
         show_message(
             "Infinite brushes enabled for the brush you are carrying.")
@@ -1506,15 +1603,31 @@ local function reset_active_vehicle_tune()
 end
 
 local function on_vehicle_tick(context, delta_seconds)
+    context = unwrap_hook_value(context)
+    if valid(context) then
+        if not valid(vehicle_tick_source) then
+            vehicle_tick_source = context
+            vehicle_hook_elapsed = 0.0
+        elseif unreal_object_id(context) ~=
+            unreal_object_id(vehicle_tick_source) then
+            return
+        end
+    end
+
+    local frame_delta =
+        tonumber(unwrap_hook_value(delta_seconds)) or 0.016
+    vehicle_hook_elapsed =
+        vehicle_hook_elapsed + math.max(0.0, frame_delta)
+    if vehicle_hook_elapsed < 0.05 then return end
+    local delta = vehicle_hook_elapsed
+    vehicle_hook_elapsed = 0.0
+
     local vehicle = get_speedometer_vehicle()
     if not valid(vehicle) then
         hide_speedometer()
         return
     end
 
-    if unreal_object_id(context) ~= unreal_object_id(vehicle) then return end
-
-    local delta = tonumber(unwrap_hook_value(delta_seconds)) or 0.016
     if vehicle_tuning_dirty then
         vehicle_tuning_save_elapsed =
             vehicle_tuning_save_elapsed + math.max(0.0, delta)
@@ -1628,28 +1741,6 @@ local function toggle_vehicle_invulnerability()
         show_message(
             "This vehicle does not expose an invulnerability control.")
     end
-end
-
-local function for_each_attached_item(vehicle, callback)
-    if not valid(vehicle) then return 0 end
-    local ok, attached = pcall(function() return vehicle.ItemAttached end)
-    if not ok or not attached then return 0 end
-    local count = 0
-    pcall(function()
-        attached:ForEach(function(wrapped_key, wrapped_value)
-            -- ItemAttached is a map/set depending on the vehicle class. Most
-            -- vehicles store the installed actor in the key, while some expose
-            -- it as the value.
-            for _, wrapped in ipairs({wrapped_key, wrapped_value}) do
-                local item = unwrap_hook_value(wrapped)
-                if valid(item) then
-                    count = count + 1
-                    callback(item)
-                end
-            end
-        end)
-    end)
-    return count
 end
 
 local function add_unique_object(list, seen, candidate)
@@ -1820,20 +1911,6 @@ local function vehicle_batteries(vehicle)
     return batteries
 end
 
-local function supports_unreal_call(object, name)
-    if not valid(object) then return false end
-    local ok, fn = pcall(function() return object[name] end)
-    if not ok or not fn then return false end
-    local valid_ok, result = pcall(function() return fn:IsValid() end)
-    return valid_ok and result == true
-end
-
-local function is_actor_object(object)
-    if not valid(object) then return false end
-    local ok, location = pcall(function() return object:GetActorLocation() end)
-    return ok and location ~= nil
-end
-
 local function linked_to_vehicle(object, vehicle)
     local queue = {object}
     local visited = {}
@@ -1995,6 +2072,40 @@ local function vehicle_surface_actors(vehicle)
     return actors
 end
 
+finalize_spawned_vehicle = function(vehicle)
+    if not valid(vehicle) then return end
+    local actors = vehicle_surface_actors(vehicle)
+    local index = 2
+    local updated = 0
+
+    local function process_batch()
+        if not valid(vehicle) then return end
+        local last = math.min(index + 7, #actors)
+        while index <= last do
+            local actor = actors[index]
+            local offset_ok =
+                call_if_present(actor, "UpdateOffsetTransform")
+            local collision_ok =
+                call_if_present(actor, "UpdateCollisionParent")
+            if offset_ok or collision_ok then
+                updated = updated + 1
+            end
+            index = index + 1
+        end
+        if index <= #actors then
+            ExecuteWithDelay(10, function()
+                ExecuteInGameThread(process_batch)
+            end)
+        else
+            log("Refreshed transform/collision state on " ..
+                tostring(updated) ..
+                " attached actor(s) for the spawned vehicle.")
+        end
+    end
+
+    process_batch()
+end
+
 local function fill_tank_component(actor, component, infinite)
     if not valid(component) then return false end
     local identity = unreal_object_id(component)
@@ -2111,122 +2222,6 @@ local function material_key(name)
     return ok and key or name
 end
 
-local function collect_surface_material_targets(actor, targets, seen)
-    targets = targets or {}
-    seen = seen or {}
-
-    local function add(candidate, kind)
-        candidate = unwrap_hook_value(candidate)
-        if not valid(candidate) then return end
-        if kind == "mesh" and
-            not supports_unreal_call(
-                candidate,
-                "SetScalarParameterValueOnMaterials") then
-            return
-        end
-        if kind == "material" and
-            not supports_unreal_call(
-                candidate,
-                "SetScalarParameterValue") then
-            return
-        end
-        local identity = unreal_object_id(candidate)
-        local key = identity and (kind .. ":" .. identity) or nil
-        if not key or seen[key] then return end
-        seen[key] = true
-        table.insert(targets, {
-            object = candidate,
-            kind = kind,
-        })
-    end
-
-    local function add_container(container, kind)
-        if not container then return end
-        pcall(function()
-            container:ForEach(function(key, value)
-                add(key, kind)
-                add(value, kind)
-            end)
-        end)
-        pcall(function()
-            for _, value in pairs(container) do
-                add(value, kind)
-            end
-        end)
-    end
-
-    add(actor, "mesh")
-    add(actor, "material")
-
-    for _, property in ipairs({
-        "RootComponent",
-        "MaterialDynComponent",
-        "RootMeshComponent",
-        "Mesh",
-        "StaticMesh",
-        "StaticMeshComponent",
-        "SkeletalMesh",
-        "SkeletalMeshComponent",
-        "MeshComponent",
-    }) do
-        local ok, value = pcall(function() return actor[property] end)
-        if ok then add(value, "mesh") end
-    end
-
-    local dyn_ok, dyn =
-        pcall(function() return actor.MaterialDynComponent end)
-    if dyn_ok and valid(dyn) then
-        for _, property in ipairs({
-            "MeshComponents",
-            "Meshs",
-        }) do
-            local ok, container = pcall(function() return dyn[property] end)
-            if ok then add_container(container, "mesh") end
-        end
-        for _, property in ipairs({
-            "DynMaterials",
-            "MapDynMaterials",
-        }) do
-            local ok, container = pcall(function() return dyn[property] end)
-            if ok then add_container(container, "material") end
-        end
-    end
-
-    for _, property in ipairs({"Meshs", "Meshes"}) do
-        local ok, container = pcall(function() return actor[property] end)
-        if ok then add_container(container, "mesh") end
-    end
-    for _, property in ipairs({"Materials", "DynMaterials", "MapDynMaterials"}) do
-        local ok, container = pcall(function() return actor[property] end)
-        if ok then add_container(container, "material") end
-    end
-
-    for _, property in ipairs({
-        "BlueprintCreatedComponents",
-        "InstanceComponents",
-        "OwnedComponents",
-        "Components",
-    }) do
-        local ok, container = pcall(function() return actor[property] end)
-        if ok then add_container(container, "mesh") end
-    end
-
-    return targets
-end
-
-local function set_surface_scalar_parameter(target, kind, key, value)
-    if not valid(target) then return false end
-    local fname = material_key(key)
-    if kind == "mesh" then
-        return pcall(function()
-            target:SetScalarParameterValueOnMaterials(fname, value)
-        end)
-    end
-    return pcall(function()
-        target:SetScalarParameterValue(fname, value)
-    end)
-end
-
 local function has_unreal_function(object, name)
     if not valid(object) then return false end
     local ok, fn = pcall(function() return object[name] end)
@@ -2235,18 +2230,20 @@ local function has_unreal_function(object, name)
     return fn_ok and fn_valid == true
 end
 
-local function collect_surface_dyn_components(actor)
-    local dyns = {}
-    local seen = {}
+local function collect_surface_dyn_components(actor, dyns, seen)
+    dyns = dyns or {}
+    seen = seen or {}
 
-    local function add(candidate)
+    local function add(candidate, resolve_nested)
         candidate = unwrap_hook_value(candidate)
         if not valid(candidate) then return end
 
-        local nested_ok, nested =
-            pcall(function() return candidate.MaterialDynComponent end)
-        if nested_ok and valid(nested) then
-            candidate = unwrap_hook_value(nested)
+        if resolve_nested then
+            local nested_ok, nested =
+                pcall(function() return candidate.MaterialDynComponent end)
+            if nested_ok and valid(nested) then
+                candidate = unwrap_hook_value(nested)
+            end
         end
 
         if not has_unreal_function(candidate, "UpdateDynParam") then
@@ -2259,39 +2256,17 @@ local function collect_surface_dyn_components(actor)
         table.insert(dyns, candidate)
     end
 
-    local function add_container(container)
-        if not container then return end
-        pcall(function()
-            container:ForEach(function(key, value)
-                add(key)
-                add(value)
-            end)
-        end)
-        pcall(function()
-            for _, value in pairs(container) do
-                add(value)
-            end
-        end)
-    end
-
-    add(actor)
+    -- Each installed part is already present in vehicle_surface_actors. Only
+    -- accept that part's explicit material controller; scanning arbitrary
+    -- component/maps can yield non-UObject wrappers that pass IsValid but crash
+    -- UE4SS when invoked.
+    add(actor, true)
     for _, property in ipairs({
         "MaterialDynComponent",
-        "MaterialDynComponents",
         "DynComponent",
-        "DynComponents",
-        "BlueprintCreatedComponents",
-        "InstanceComponents",
-        "OwnedComponents",
-        "Components",
-        "Meshs",
-        "Meshes",
     }) do
         local ok, value = pcall(function() return actor[property] end)
-        if ok then
-            add(value)
-            add_container(value)
-        end
+        if ok then add(value, false) end
     end
 
     return dyns
@@ -2306,16 +2281,6 @@ end
 
 local function normalized_material_key(value)
     return string.lower(object_text(value)):gsub("%s+", ""):gsub("_", "")
-end
-
-local function set_wrapped_scalar(value, scalar)
-    local ok = pcall(function() value:set(scalar) end)
-    if ok then return true end
-    ok = pcall(function() value.Value = scalar end)
-    if ok then return true end
-    ok = pcall(function() value.ScalarParameter = scalar end)
-    if ok then return true end
-    return false
 end
 
 local dyn_param_log_budget = 8
@@ -2350,9 +2315,9 @@ local function set_dyn_param_scalar(dyn, key, scalar, add_to_value)
     end
 
     if changed then
-        call_if_present(dyn, "ProcessDynParam")
-        call_if_present(dyn, "OnRep_ListDynParam")
-        call_if_present(dyn, "OnRepListDynParam")
+        -- UpdateDynParam is the owning Blueprint's committed update path. Do
+        -- not invoke its internal processing/replication callbacks a second
+        -- time; doing so can invalidate controller state during this batch.
     end
 
     if changed and dyn_param_log_budget > 0 then
@@ -2412,289 +2377,44 @@ local function dyn_has_material_parameter(dyn, wanted_key)
     return found
 end
 
-local function update_surface_dyn_component(actor, mode)
-    if not valid(actor) then return false end
-    local dyns = collect_surface_dyn_components(actor)
-    if #dyns == 0 then return false end
-
+local function update_surface_dyn_component(dyn, mode)
+    if not valid(dyn) or
+        not has_unreal_function(dyn, "UpdateDynParam") then
+        return false
+    end
     local changed = false
-    for _, dyn in ipairs(dyns) do
-        if mode == "rust" then
-            if dyn_has_material_parameter(dyn, "Rust and wear") then
-                local duration = numeric_property(dyn, "RustCurveDuration")
-                if duration and duration > 0 then
-                    set_if_present(dyn, "RustTimer", duration)
-                end
-                if set_dyn_param_scalar(dyn, "Rust and wear", 1.0) then
-                    changed = true
-                end
+    if mode == "rust" then
+        if dyn_has_material_parameter(dyn, "Rust and wear") then
+            local duration = numeric_property(dyn, "RustCurveDuration")
+            if duration and duration > 0 then
+                set_if_present(dyn, "RustTimer", duration)
             end
-        elseif mode == "remove_rust" then
-            if dyn_has_material_parameter(dyn, "Rust and wear") then
-                set_if_present(dyn, "RustTimer", 0.0)
-                call_if_present(dyn, "ResetRustTimer")
-                if set_dyn_param_scalar(dyn, "Rust and wear", 0.0) then
-                    changed = true
-                end
-            end
-        elseif mode == "polish" then
-            -- A before/after capture of the game's PolishBrush confirmed its
-            -- committed state: Polish changes from 0 to 1 and BurnAmount is
-            -- initialized to 0. Only components that already define Polish
-            -- can safely accept these updates.
-            if dyn_has_material_parameter(dyn, "Polish") then
-                if set_dyn_param_scalar(dyn, "Polish", 1.0, false) then
-                    changed = true
-                end
-                if set_dyn_param_scalar(dyn, "BurnAmount", 0.0, false) then
-                    changed = true
-                end
+            if set_dyn_param_scalar(dyn, "Rust and wear", 1.0) then
+                changed = true
             end
         end
-    end
-    return changed
-end
-
-local surface_state_sync_log_budget = 8
-
-local function field_name_from_full_name(full_name)
-    return tostring(full_name):match(":([^:]+)$")
-end
-
-local function surface_state_value_for_field(full_name, mode)
-    local lower_name = string.lower(tostring(full_name))
-    for _, blocked in ipairs({
-        "transform",
-        "location",
-        "rotation",
-        "scale",
-        "socket",
-        "class",
-        "type",
-        "index",
-        "guid",
-        "seed",
-        "mesh",
-        "actor",
-        "component",
-        "parent",
-        "child",
-        "attach",
-        "quantity",
-        "capacity",
-        "count",
-        "name",
-    }) do
-        if string.find(lower_name, blocked, 1, true) then
-            return nil
-        end
-    end
-
-    local is_bool = string.find(full_name, "BoolProperty", 1, true) ~= nil
-    local is_numeric =
-        string.find(full_name, "FloatProperty", 1, true) ~= nil or
-        string.find(full_name, "DoubleProperty", 1, true) ~= nil or
-        string.find(full_name, "IntProperty", 1, true) ~= nil or
-        string.find(full_name, "ByteProperty", 1, true) ~= nil
-    if not is_bool and not is_numeric then return nil end
-
-    local has_rust_term =
-        string.find(lower_name, "rust", 1, true) ~= nil or
-        string.find(lower_name, "wear", 1, true) ~= nil
-    local has_polish_term =
-        string.find(lower_name, "polish", 1, true) ~= nil
-    local has_clean_term =
-        string.find(lower_name, "clean", 1, true) ~= nil
-    local has_dirty_term =
-        string.find(lower_name, "dirt", 1, true) ~= nil or
-        string.find(lower_name, "dust", 1, true) ~= nil or
-        string.find(lower_name, "mud", 1, true) ~= nil or
-        string.find(lower_name, "grime", 1, true) ~= nil or
-        string.find(lower_name, "soot", 1, true) ~= nil or
-        string.find(lower_name, "burn", 1, true) ~= nil
-
-    if mode == "rust" or mode == "remove_rust" then
-        if not has_rust_term then return nil end
-        if is_bool then return mode == "rust" end
-        return mode == "rust" and 1.0 or 0.0
-    end
-
-    if mode == "polish" then
-        if has_polish_term then
-            if is_bool then return true end
-            return 1.0
-        end
-        if has_dirty_term then
-            if is_bool then return false end
-            return 0.0
-        end
-        if has_clean_term then
-            if is_bool then return true end
-            return 1.0
-        end
-    end
-
-    return nil
-end
-
-local function sync_surface_state_struct(actor, mode)
-    if not valid(actor) then return false end
-    local changed = false
-    local field_changes = 0
-    local class_ok, class = pcall(function() return actor:GetClass() end)
-    local depth = 0
-    while class_ok and valid(class) and depth < 6 do
-        pcall(function()
-            class:ForEachProperty(function(property)
-                local property_full_name = tostring(property:GetFullName())
-                local property_name = field_name_from_full_name(
-                    property_full_name)
-                local lower_property_name =
-                    string.lower(tostring(property_name))
-                if not property_name or
-                    not string.find(
-                        lower_property_name,
-                        "stateitem",
-                        1,
-                        true) then
-                    return
-                end
-
-                local state_ok, state =
-                    pcall(function() return actor[property_name] end)
-                if not state_ok or not state then return end
-
-                local struct_ok, struct =
-                    pcall(function() return property.Struct end)
-                if not struct_ok or not valid(struct) then return end
-
-                local state_changed = false
-                pcall(function()
-                    struct:ForEachProperty(function(field)
-                        local field_full_name =
-                            tostring(field:GetFullName())
-                        local field_name =
-                            field_name_from_full_name(field_full_name)
-                        if not field_name then return end
-                        local value = surface_state_value_for_field(
-                            field_full_name,
-                            mode)
-                        if value == nil then return end
-                        local set_ok = pcall(function()
-                            state[field_name] = value
-                        end)
-                        if set_ok then
-                            field_changes = field_changes + 1
-                            state_changed = true
-                            changed = true
-                        end
-                    end)
-                end)
-
-                if state_changed then
-                    pcall(function() actor[property_name] = state end)
-                end
-            end)
-        end)
-        class_ok, class = pcall(function() return class:GetSuperStruct() end)
-        depth = depth + 1
-    end
-
-    if changed then
-        call_if_present(actor, "OnRepStateItem")
-        call_if_present(actor, "OnRep_StateItem")
-        call_if_present(actor, "ForceRepStateItem")
-        if surface_state_sync_log_budget > 0 then
-            log("Surface state sync wrote " ..
-                tostring(field_changes) ..
-                " saved field(s) for " .. tostring(mode) .. ".")
-            surface_state_sync_log_budget =
-                surface_state_sync_log_budget - 1
-        end
-    end
-
-    return changed
-end
-
-local function touch_surface_actor(actor, mode, skip_material_updates)
-    if not valid(actor) then return false end
-
-    local touched = false
-    local targets = nil
-
-    if mode == "polish" then
-        local ok = call_if_present(actor, "PlayAnimClean")
-        touched = touched or ok
-        ok = update_surface_dyn_component(actor, mode)
-        touched = touched or ok
-    elseif mode == "rust" then
-        local ok = call_if_present(actor, "ResetAnimClean")
-        touched = touched or ok
-        ok = update_surface_dyn_component(actor, mode)
-        touched = touched or ok
     elseif mode == "remove_rust" then
-        local ok = update_surface_dyn_component(actor, mode)
-        touched = touched or ok
-    end
-
-    if not skip_material_updates and
-        (mode == "remove_rust" or mode == "rust") then
-        local rust_value = mode == "rust" and 1.0 or 0.0
-        targets = targets or collect_surface_material_targets(actor)
-        for _, target in ipairs(targets) do
-            if set_surface_scalar_parameter(
-                target.object,
-                target.kind,
-                "Rust and wear",
-                rust_value) then
-                touched = true
+        if dyn_has_material_parameter(dyn, "Rust and wear") then
+            set_if_present(dyn, "RustTimer", 0.0)
+            if set_dyn_param_scalar(dyn, "Rust and wear", 0.0) then
+                changed = true
+            end
+        end
+    elseif mode == "polish" then
+        -- A before/after capture of the game's PolishBrush confirmed its
+        -- committed state: Polish changes from 0 to 1 and BurnAmount is
+        -- initialized to 0. Only components that already define Polish
+        -- can safely accept these updates.
+        if dyn_has_material_parameter(dyn, "Polish") then
+            if set_dyn_param_scalar(dyn, "Polish", 1.0, false) then
+                changed = true
+            end
+            if set_dyn_param_scalar(dyn, "BurnAmount", 0.0, false) then
+                changed = true
             end
         end
     end
-
-    if not skip_material_updates and mode == "polish" then
-        targets = targets or collect_surface_material_targets(actor)
-        local polish_scalars = {
-            {"Clean", 1.0},
-            {"CleanAmount", 1.0},
-            {"Clean Amount", 1.0},
-            {"Cleanliness", 1.0},
-            {"Cleaned", 1.0},
-            {"Glass Clean", 1.0},
-            {"GlassClean", 1.0},
-            {"Window Clean", 1.0},
-            {"WindowClean", 1.0},
-            {"Dirt", 0.0},
-            {"Dust", 0.0},
-            {"Mud", 0.0},
-            {"Dirty", 0.0},
-            {"Grime", 0.0},
-            {"Soot", 0.0},
-            {"Burn", 0.0},
-            {"Burned", 0.0},
-            {"Glass Dirt", 0.0},
-            {"GlassDirt", 0.0},
-            {"Window Dirt", 0.0},
-            {"WindowDirt", 0.0},
-            {"Glass Dust", 0.0},
-            {"GlassDust", 0.0},
-            {"Window Dust", 0.0},
-            {"WindowDust", 0.0},
-        }
-        for _, target in ipairs(targets) do
-            for _, entry in ipairs(polish_scalars) do
-                if set_surface_scalar_parameter(
-                    target.object,
-                    target.kind,
-                    entry[1],
-                    entry[2]) then
-                    touched = true
-                end
-            end
-        end
-    end
-
-    return touched
+    return changed
 end
 
 local function set_vehicle_surface(mode)
@@ -2706,35 +2426,21 @@ local function set_vehicle_surface(mode)
     end
 
     local actors = vehicle_surface_actors(vehicle)
-    local material_targets = {}
-    local material_seen = {}
+    local dyn_components = {}
+    local dyn_seen = {}
     for _, actor in ipairs(actors) do
-        collect_surface_material_targets(
+        collect_surface_dyn_components(
             actor,
-            material_targets,
-            material_seen)
-    end
-
-    local scalar_updates
-    if mode == "polish" then
-        -- MaterialDynComponent handles Polish inversion. Direct material writes
-        -- would overwrite that computed result, so polishing is component-only.
-        scalar_updates = {}
-    else
-        scalar_updates = {
-            {"Rust and wear", mode == "rust" and 1.0 or 0.0},
-        }
+            dyn_components,
+            dyn_seen)
     end
 
     surface_action_running = true
     surface_action_token = surface_action_token + 1
     local token = surface_action_token
-    local actor_index = 1
-    local material_index = 1
-    local actor_batch_size = mode == "polish" and 3 or 10
-    local material_batch_size = mode == "polish" and 2 or 12
+    local dyn_index = 1
+    local dyn_batch_size = 2
     local parts = 0
-    local material_updates = 0
 
     local label = "Vehicle surface updated"
     if mode == "polish" then
@@ -2751,63 +2457,32 @@ local function set_vehicle_surface(mode)
             call_if_present(vehicle, "PlayAnimCleanning")
         end
         surface_action_running = false
-        if parts > 0 or material_updates > 0 then
+        if parts > 0 then
             show_message(label .. " on the occupied vehicle.")
         else
             show_message("No compatible vehicle surface controls were detected.")
         end
         log(label .. " using " .. tostring(#actors) ..
             " active-vehicle actor(s) and " ..
-            tostring(#material_targets) ..
-            " deduplicated material target(s).")
+            tostring(#dyn_components) ..
+            " explicit material controller(s).")
     end
 
-    local process_material_batch
-    local function process_actor_batch()
+    local function process_dyn_batch()
         if token ~= surface_action_token then return end
         local last =
-            math.min(actor_index + actor_batch_size - 1, #actors)
-        while actor_index <= last do
+            math.min(dyn_index + dyn_batch_size - 1, #dyn_components)
+        while dyn_index <= last do
             local ok, changed = pcall(
-                touch_surface_actor,
-                actors[actor_index],
-                mode,
-                true)
+                update_surface_dyn_component,
+                dyn_components[dyn_index],
+                mode)
             if ok and changed then parts = parts + 1 end
-            actor_index = actor_index + 1
+            dyn_index = dyn_index + 1
         end
-        if actor_index <= #actors then
+        if dyn_index <= #dyn_components then
             ExecuteWithDelay(10, function()
-                ExecuteInGameThread(process_actor_batch)
-            end)
-        else
-            ExecuteWithDelay(10, function()
-                ExecuteInGameThread(process_material_batch)
-            end)
-        end
-    end
-
-    process_material_batch = function()
-        if token ~= surface_action_token then return end
-        local last =
-            math.min(material_index + material_batch_size - 1,
-                #material_targets)
-        while material_index <= last do
-            local target = material_targets[material_index]
-            for _, entry in ipairs(scalar_updates) do
-                if set_surface_scalar_parameter(
-                    target.object,
-                    target.kind,
-                    entry[1],
-                    entry[2]) then
-                    material_updates = material_updates + 1
-                end
-            end
-            material_index = material_index + 1
-        end
-        if material_index <= #material_targets then
-            ExecuteWithDelay(10, function()
-                ExecuteInGameThread(process_material_batch)
+                ExecuteInGameThread(process_dyn_batch)
             end)
         else
             finish_surface_action()
@@ -2815,7 +2490,7 @@ local function set_vehicle_surface(mode)
     end
 
     show_message("Updating the occupied vehicle surface...")
-    process_actor_batch()
+    process_dyn_batch()
 end
 
 local function get_stats()
@@ -3014,16 +2689,6 @@ local function set_many_if_present(object, entries)
         if set_if_present(object, entry[1], entry[2]) then
             changed = true
         end
-    end
-    return changed
-end
-
-local function call_refresh_functions(object, names)
-    local changed = false
-    if not valid(object) then return false end
-    for _, name in ipairs(names) do
-        local ok = call_if_present(object, name)
-        changed = changed or ok
     end
     return changed
 end
@@ -3377,312 +3042,6 @@ local function adjust_money(amount)
     show_message(ok and ("Money adjusted by $" .. tostring(amount)) or "Money control was unavailable.")
 end
 
-local surface_api_probe_complete = false
-
-local function probe_surface_api(surface_actors)
-    if surface_api_probe_complete then return end
-    surface_api_probe_complete = true
-
-    local terms = {
-        "rust", "clean", "polish", "brush", "material",
-        "state", "hit", "target", "primary", "amount",
-    }
-    local function relevant(text)
-        local lower = string.lower(tostring(text))
-        for _, term in ipairs(terms) do
-            if string.find(lower, term, 1, true) then return true end
-        end
-        return false
-    end
-
-    local function dump_struct(struct, label, state)
-        if not valid(struct) then return end
-        log("Surface probe struct: " .. label .. " = " ..
-            (unreal_object_id(struct) or "<unknown>"))
-        pcall(function()
-            struct:ForEachProperty(function(property)
-                local full_name = tostring(property:GetFullName())
-                local field_name = full_name:match(":([^:]+)$")
-                local value_text = "<unavailable>"
-                if state and field_name then
-                    local value_ok, value =
-                        pcall(function() return state[field_name] end)
-                    if value_ok then value_text = tostring(value) end
-                end
-                log("  STATE FIELD " .. full_name .. "=" .. value_text)
-            end)
-        end)
-    end
-
-    for _, path in ipairs({
-        "/Game/BP/Items/Movable/Tools/RustBrush",
-        "/Game/BP/Items/Movable/Tools/PolishBrush",
-    }) do
-        pcall(function() LoadAsset(path) end)
-        local asset_name = path:match("([^/]+)$")
-        local class = StaticFindObject(
-            path .. "." .. asset_name .. "_C")
-        if valid(class) then
-            local cdo_ok, cdo =
-                pcall(function() return class:GetCDO() end)
-            if cdo_ok and valid(cdo) then
-                log("Surface probe CDO: " ..
-                    (unreal_object_id(cdo) or "<unknown>"))
-                for _, property_name in ipairs({
-                    "BrushMaterialKey",
-                    "BrushSpeed",
-                    "OneMinusDynParam",
-                    "IsScalarBrush",
-                    "RemoveBurn",
-                    "ChannelColor",
-                    "Return",
-                    "ColorToSet",
-                }) do
-                    local value_ok, value =
-                        pcall(function() return cdo[property_name] end)
-                    if value_ok then
-                        local value_text = tostring(value)
-                        local name_ok, name_text =
-                            pcall(function() return value:ToString() end)
-                        if name_ok and type(name_text) == "string" then
-                            value_text = name_text
-                        end
-                        log("  CDO VALUE " .. property_name ..
-                            "=" .. value_text)
-                    end
-                end
-            end
-        end
-        local depth = 0
-        while valid(class) and depth < 5 do
-            log("Surface probe class: " ..
-                (unreal_object_id(class) or "<unknown>"))
-            pcall(function()
-                class:ForEachProperty(function(property)
-                    local full_name = tostring(property:GetFullName())
-                    if relevant(full_name) then
-                        log("  PROPERTY " .. full_name)
-                    end
-                end)
-                class:ForEachFunction(function(fn)
-                    local full_name = tostring(fn:GetFullName())
-                    if relevant(full_name) then
-                        log("  FUNCTION " .. full_name)
-                    end
-                    local lower_name = string.lower(full_name)
-                    if string.find(
-                        lower_name, "brushmasteritem_c:process", 1, true) or
-                        string.find(
-                            lower_name,
-                            "brushmasteritem_c:executeubergraph",
-                            1,
-                            true) then
-                        fn:ForEachProperty(function(parameter)
-                            local parameter_name =
-                                tostring(parameter:GetFullName())
-                            if relevant(parameter_name) then
-                                log("    BRUSH PARAM " .. parameter_name)
-                            end
-                        end)
-                    end
-                end)
-            end)
-            local super_ok, super =
-                pcall(function() return class:GetSuperStruct() end)
-            class = super_ok and super or nil
-            depth = depth + 1
-        end
-    end
-
-    local first_actor = surface_actors and surface_actors[1] or nil
-    if valid(first_actor) then
-        for _, component_name in ipairs({
-            "MaterialDynComponent",
-            "RootMeshComponent",
-            "Mesh",
-        }) do
-            local component_ok, component =
-                pcall(function() return first_actor[component_name] end)
-            if component_ok and valid(component) then
-                log("Surface component " .. component_name .. ": " ..
-                    (unreal_object_id(component) or "<unknown>"))
-                local component_class_ok, component_class =
-                    pcall(function() return component:GetClass() end)
-                local component_depth = 0
-                while component_class_ok and valid(component_class) and
-                    component_depth < 5 do
-                    pcall(function()
-                        component_class:ForEachProperty(function(property)
-                            local full_name =
-                                tostring(property:GetFullName())
-                            local lower_name = string.lower(full_name)
-                            if string.find(lower_name, "dyn", 1, true) or
-                                string.find(
-                                    lower_name, "material", 1, true) or
-                                string.find(
-                                    lower_name, "scalar", 1, true) or
-                                string.find(
-                                    lower_name, "param", 1, true) or
-                                string.find(lower_name, "rust", 1, true) or
-                                string.find(lower_name, "clean", 1, true) or
-                                string.find(lower_name, "polish", 1, true) then
-                                local field_name =
-                                    full_name:match(":([^:]+)$")
-                                local value_text = "<unavailable>"
-                                if field_name then
-                                    local field_ok, field =
-                                        pcall(function()
-                                            return component[field_name]
-                                        end)
-                                    if field_ok then
-                                        value_text = tostring(field)
-                                    end
-                                end
-                                log("  COMPONENT PROPERTY " .. full_name ..
-                                    "=" .. value_text)
-                            end
-                        end)
-                        component_class:ForEachFunction(function(fn)
-                            local full_name = tostring(fn:GetFullName())
-                            local lower_name = string.lower(full_name)
-                            if string.find(lower_name, "dyn", 1, true) or
-                                string.find(
-                                    lower_name, "material", 1, true) or
-                                string.find(
-                                    lower_name, "scalar", 1, true) or
-                                string.find(
-                                    lower_name, "param", 1, true) or
-                                string.find(lower_name, "rust", 1, true) or
-                                string.find(lower_name, "clean", 1, true) or
-                                string.find(lower_name, "polish", 1, true) then
-                                log("  COMPONENT FUNCTION " .. full_name)
-                            end
-                        end)
-                    end)
-                    component_class_ok, component_class =
-                        pcall(function()
-                            return component_class:GetSuperStruct()
-                        end)
-                    component_depth = component_depth + 1
-                end
-            end
-        end
-
-        local state_ok, state =
-            pcall(function() return first_actor.StateItem end)
-        local class_ok, class =
-            pcall(function() return first_actor:GetClass() end)
-        local depth = 0
-        while class_ok and valid(class) and depth < 5 do
-            pcall(function()
-                class:ForEachProperty(function(property)
-                    local full_name = tostring(property:GetFullName())
-                    if string.find(
-                        string.lower(full_name), "stateitem", 1, true) then
-                        log("Surface StateItem property: " .. full_name)
-                        local struct_ok, struct =
-                            pcall(function() return property.Struct end)
-                        if struct_ok then
-                            dump_struct(
-                                struct,
-                                full_name,
-                                state_ok and state or nil)
-                        end
-                    end
-                end)
-            end)
-            class_ok, class =
-                pcall(function() return class:GetSuperStruct() end)
-            depth = depth + 1
-        end
-    end
-
-    local dumped_surface_structs = {}
-    local function dump_surface_struct_once(struct, label)
-        if not valid(struct) then return end
-        local identity = unreal_object_id(struct) or tostring(struct)
-        if dumped_surface_structs[identity] then return end
-        dumped_surface_structs[identity] = true
-        dump_struct(struct, label, nil)
-    end
-
-    local structs_ok, structs =
-        pcall(function() return FindAllOf("ScriptStruct") end)
-    if structs_ok and structs then
-        for _, struct in ipairs(structs) do
-            struct = unwrap_hook_value(struct)
-            local identity = unreal_object_id(struct) or ""
-            local lower_identity = string.lower(identity)
-            if string.find(lower_identity, "stateitem", 1, true) then
-                dump_surface_struct_once(struct, "loaded StateItem")
-            elseif string.find(lower_identity, "dynparam", 1, true) or
-                string.find(lower_identity, "scalarparameter", 1, true) then
-                dump_surface_struct_once(
-                    struct,
-                    "loaded surface parameter struct")
-            end
-        end
-    end
-
-    local functions_ok, functions =
-        pcall(function() return FindAllOf("Function") end)
-    if functions_ok and functions then
-        for _, fn in ipairs(functions) do
-            fn = unwrap_hook_value(fn)
-            local identity = unreal_object_id(fn) or ""
-            local lower_identity = string.lower(identity)
-            if string.find(
-                    lower_identity, "setcleananimation", 1, true) or
-                string.find(
-                    lower_identity, "updatealldynmaterials", 1, true) or
-                string.find(
-                    lower_identity, "updatedynparam", 1, true) or
-                string.find(
-                    lower_identity, "processdynparam", 1, true) or
-                string.find(
-                    lower_identity, "setdynmaterialbykey", 1, true) or
-                string.find(
-                    lower_identity, "resetrusttimer", 1, true) or
-                string.find(
-                    lower_identity, "setscalarparameter", 1, true) then
-                log("Surface update function: " .. identity)
-                pcall(function()
-                    fn:ForEachProperty(function(parameter)
-                        local detail = tostring(parameter:GetFullName())
-                        local struct_ok, struct =
-                            pcall(function() return parameter:GetStruct() end)
-                        if struct_ok and valid(struct) then
-                            detail = detail .. " STRUCT=" ..
-                                (unreal_object_id(struct) or "<unknown>")
-                            local lower_detail = string.lower(detail)
-                            if string.find(
-                                    lower_identity,
-                                    "updatedynparam",
-                                    1,
-                                    true) or
-                                string.find(
-                                    lower_identity,
-                                    "updatealldynmaterials",
-                                    1,
-                                    true) or
-                                string.find(
-                                    lower_detail,
-                                    "dynparam",
-                                    1,
-                                    true) then
-                                dump_surface_struct_once(
-                                    struct,
-                                    "surface update parameter struct")
-                            end
-                        end
-                        log("  UPDATE PARAM " .. detail)
-                    end)
-                end)
-            end
-        end
-    end
-end
-
 local function toggle_vehicle_info()
     local vehicle = get_current_vehicle()
     if not valid(vehicle) then
@@ -3692,7 +3051,6 @@ local function toggle_vehicle_info()
     local tanks = vehicle_tanks(vehicle)
     local batteries = vehicle_batteries(vehicle)
     local surface_actors = vehicle_surface_actors(vehicle)
-    probe_surface_api(surface_actors)
     for _, tank in ipairs(tanks) do
         log(
             "Detected vehicle tank: actor=" ..
@@ -3795,6 +3153,31 @@ register("ToggleVehicleTools", function() set_expanded_section("VehicleTools") e
 register("TogglePlayer", function() set_expanded_section("Player") end)
 register("ToggleWorld", function() set_expanded_section("World") end)
 register("OpenPaintStudio", open_paint_studio)
+register("PaintSwatch1", function()
+    spawn_saved_paint_swatch(1)
+end)
+register("PaintSwatch2", function()
+    spawn_saved_paint_swatch(2)
+end)
+register("PaintSwatch3", function()
+    spawn_saved_paint_swatch(3)
+end)
+register("PaintSwatch4", function()
+    spawn_saved_paint_swatch(4)
+end)
+register("PaintSwatch5", function()
+    spawn_saved_paint_swatch(5)
+end)
+register("PaintSwatch6", function()
+    spawn_saved_paint_swatch(6)
+end)
+register("PaintSwatch7", function()
+    spawn_saved_paint_swatch(7)
+end)
+register("PaintSwatch8", function()
+    spawn_saved_paint_swatch(8)
+end)
+register("ClearPaintSwatches", ANI_ToolState.clear_paint_swatches)
 register("PaintStandard", function()
     paint_infinite_next = false
     update_paint_mode_buttons()
@@ -3892,13 +3275,15 @@ RegisterConsoleCommandGlobalHandler("assemblynotincluded", function()
 end)
 
 ExecuteWithDelay(1500, function()
-    ExecuteInGameThread(function()
-        install_speedometer_tick_hook()
-        ANI_ToolState.brush_service_token =
-            ANI_ToolState.brush_service_token + 1
-        ANI_ToolState.service_brush_durability()
-        ANI_ToolState.schedule_brush_service(
-            ANI_ToolState.brush_service_token)
-    end)
+    ExecuteInGameThread(install_speedometer_tick_hook)
 end)
-log("Bridge loaded. Press F7 to open Assembly Not Included: Garage Console.")
+for _, delay in ipairs({5000, 15000, 30000}) do
+    ExecuteWithDelay(delay, function()
+        ExecuteInGameThread(function()
+            if not ANI_ToolState.infinite_brushes_enabled then
+                ANI_ToolState.service_brush_durability()
+            end
+        end)
+    end)
+end
+log("Assembly Not Included loaded. Press F7 to open or close.")
