@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.6.6
+
+Complete vehicle-parts catalog and input-stability update.
+
+- Added omitted vehicle and engine parts from the current game build to the item spawner.
+- Added coverage for Escada, P-51/French Utility, Loft/German Compact, Kage/Japanese Sporty, Tomahawk/Muscle Car, Peak, Speedle, and isolated missing parts from other vehicle families.
+- Preserved the fast native item catalog and appended only concrete vehicle-item classes that the native catalog omitted.
+- Excluded master, template, projectile, debug, and non-item Blueprint classes from supplemental spawning.
+- Kept the compact eight-column catalog layout.
+- Added debounced supplemental search results without replacing the native catalog.
+- Delayed empty-search rebuilding until the native grid finishes removing its previous results, preventing search-clear crashes.
+- Strengthened guarded game-input restoration after item spawning so control returns without an extra F7 cycle.
+- Removed experimental thumbnail mutation after testing showed it could destabilize catalog rebuilding.
+- Known limitation: supplemental vehicle parts may display without an item image when the game does not provide a usable native thumbnail mapping. Thumbnail support remains under development.
+- Validated the release against Drive Beyond Horizons Steam build `24071320`.
+- Validated the release with UE4SS zDEV Git SHA `c2ac2464`.
+
 ## v0.6.5
 
 Compatibility, performance, and spawning update.

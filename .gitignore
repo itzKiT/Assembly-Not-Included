@@ -12,6 +12,7 @@ Source/Unreal/Plugins/*/Intermediate/
 
 # Local packaging output
 artifacts/
+/work/
 *.sln
 *.VC.db
 *.opensdf

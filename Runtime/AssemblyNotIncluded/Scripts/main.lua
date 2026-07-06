@@ -3,6 +3,7 @@ local MENU_ASSET = "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncluded"
 local SPEEDOMETER_ASSET =
     "/Game/Mods/AssemblyNotIncluded/WBP_AssemblyNotIncludedSpeedometer"
 local ITEM_MENU_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu"
+local ITEM_ELEMENT_ASSET = "/Game/UI/ItemSpawnerMenu/ItemSpawnerElement"
 local ITEM_CATALOG_TILE_WIDTH = 220
 local ITEM_CATALOG_GRID_X_OFFSET = -24
 local PAINT_MENU_ASSET = "/Game/UI/PaintBombMenu/SprayCanSpawnMenu"
@@ -41,6 +42,8 @@ local surface_action_token = 0
 local menu_actions = {}
 local item_click_hooked = false
 local item_layout_hooked = false
+local item_search_hooked = false
+local item_supplement_token = 0
 local paint_infinite_next = false
 local paint_watch_token = 0
 local expanded_section = nil
@@ -50,6 +53,7 @@ ANI_ToolState = {
     paint_swatches = {},
     paint_swatch_limit = 8,
     paint_studio_opening = false,
+    vehicle_catalog_entries = nil,
 }
 
 local VEHICLES = {
@@ -248,13 +252,17 @@ local function restore_game_input()
     input_restore_token = input_restore_token + 1
     local token = input_restore_token
     apply_game_input()
-    ExecuteWithDelay(75, function()
-        ExecuteInGameThread(function()
-            if token ~= input_restore_token then return end
-            if menu_open or valid(item_widget) or valid(paint_widget) then return end
-            apply_game_input()
+    for _, delay_ms in ipairs({75, 225, 450}) do
+        ExecuteWithDelay(delay_ms, function()
+            ExecuteInGameThread(function()
+                if token ~= input_restore_token then return end
+                if menu_open or valid(item_widget) or valid(paint_widget) then
+                    return
+                end
+                apply_game_input()
+            end)
         end)
-    end)
+    end
 end
 
 local function close_menu()
@@ -526,6 +534,255 @@ local function configure_native_item_catalog_layout(widget)
     return size_ok
 end
 
+local function asset_field_string(field)
+    local ok, value = pcall(function() return field:get():ToString() end)
+    if ok then return tostring(value) end
+    ok, value = pcall(function() return field:ToString() end)
+    return ok and tostring(value) or tostring(field)
+end
+
+local function load_vehicle_catalog_supplement()
+    if ANI_ToolState.vehicle_catalog_entries then
+        return ANI_ToolState.vehicle_catalog_entries
+    end
+
+    local entries = {}
+    local helpers =
+        StaticFindObject("/Script/AssetRegistry.Default__AssetRegistryHelpers")
+    if not valid(helpers) then
+        log("Vehicle-part supplement unavailable: asset registry helpers missing.")
+        return entries
+    end
+    local registry_ok, registry =
+        pcall(function() return helpers:GetAssetRegistry() end)
+    if not registry_ok or not valid(registry) then
+        log("Vehicle-part supplement unavailable: asset registry missing.")
+        return entries
+    end
+    pcall(function() registry:WaitForCompletion() end)
+
+    local assets = {}
+    local query_ok, query_result = pcall(function()
+        return registry:GetAssetsByPath(
+            UEHelpers.FindOrAddFName("/Game/BP/CarsV2/System/Actors"),
+            assets,
+            true,
+            false
+        )
+    end)
+    if not query_ok or not query_result then
+        log("Vehicle-part supplement asset query failed.")
+        return entries
+    end
+
+    local item_base_class =
+        class_from_asset("/Game/BP/Items/Master/ItemBaseMaster")
+    if not valid(item_base_class) then
+        log("Vehicle-part supplement base item class is unavailable.")
+        return entries
+    end
+
+    local seen = {}
+    for _, wrapped in ipairs(assets) do
+        local data = wrapped
+        pcall(function() data = data:get() end)
+        local package_name = ""
+        local asset_type = ""
+        local asset_name = ""
+        pcall(function()
+            package_name =
+                string.lower(asset_field_string(data.PackageName))
+        end)
+        pcall(function()
+            asset_type = asset_field_string(data.AssetClassPath.AssetName)
+        end)
+        pcall(function()
+            asset_name = asset_field_string(data.AssetName)
+        end)
+        asset_name = string.gsub(asset_name, "_C$", "")
+        local lower_name = string.lower(asset_name)
+        local template =
+            string.find(package_name, "/master/", 1, true) ~= nil
+            or string.sub(lower_name, -6) == "master"
+            or string.find(lower_name, "projectile", 1, true) ~= nil
+            or string.sub(lower_name, 1, 6) == "debug_"
+            or lower_name == "banquetteseatbase"
+
+        if asset_type == "BlueprintGeneratedClass" and not template then
+            local load_ok, item_class =
+                pcall(function() return helpers:GetAsset(data) end)
+            local child_ok, is_item = pcall(function()
+                return item_class:IsChildOf(item_base_class)
+            end)
+            if load_ok and valid(item_class) and child_ok and is_item then
+                local identity = tostring(item_class:GetFullName())
+                if not seen[identity] then
+                    seen[identity] = true
+                    entries[#entries + 1] = {
+                        class = item_class,
+                        identity = identity,
+                        name = asset_name,
+                        search = string.lower(
+                            asset_name .. " " .. package_name
+                        ),
+                    }
+                end
+            end
+        end
+    end
+
+    table.sort(entries, function(left, right)
+        return left.name:lower() < right.name:lower()
+    end)
+    ANI_ToolState.vehicle_catalog_entries = entries
+    log("Indexed " .. tostring(#entries) ..
+        " concrete vehicle-part classes for catalog completion.")
+    return entries
+end
+
+local function item_catalog_query(widget)
+    local query = ""
+    pcall(function()
+        query =
+            string.lower(widget.EditableText_80:GetText():ToString())
+    end)
+    return query
+end
+
+local function append_missing_vehicle_catalog_items(widget, allow_empty)
+    if not valid(widget) or widget ~= item_widget then return end
+    local grid_ok, grid = pcall(function() return widget.Grid end)
+    if not grid_ok or not valid(grid) then return end
+
+    local entries = load_vehicle_catalog_supplement()
+    if #entries == 0 then return end
+
+    local existing = {}
+    local child_count = 0
+    pcall(function() child_count = grid:GetChildrenCount() end)
+    for index = 0, child_count - 1 do
+        local child = nil
+        pcall(function() child = grid:GetChildAt(index) end)
+        if valid(child) then
+            local item_class = nil
+            pcall(function() item_class = child.ItemToSpawn end)
+            if valid(item_class) then
+                pcall(function()
+                    existing[tostring(item_class:GetFullName())] = true
+                end)
+            end
+        end
+    end
+
+    local pc = get_pc()
+    local library =
+        StaticFindObject("/Script/UMG.Default__WidgetBlueprintLibrary")
+    local element_class = class_from_asset(ITEM_ELEMENT_ASSET)
+    if not valid(pc) or not valid(library) or not valid(element_class) then
+        log("Vehicle-part catalog element factory is unavailable.")
+        return
+    end
+
+    local query = item_catalog_query(widget)
+    if query == "" and not allow_empty then return end
+    local appended = 0
+    local columns = 8
+    local append_ok, append_error = pcall(function()
+        for _, entry in ipairs(entries) do
+            if not existing[entry.identity]
+                and (query == ""
+                    or string.find(entry.search, query, 1, true)) then
+                local element = library:Create(pc, element_class, pc)
+                if valid(element) then
+                    element.ItemToSpawn = entry.class
+                    element.Parent = widget
+                    element.Size = 200
+                    local position = child_count + appended
+                    local row = math.floor(position / columns)
+                    local column = position % columns
+                    local slot = grid:AddChildToGrid(element, row, column)
+                    if valid(slot) then
+                        pcall(function()
+                            slot:SetHorizontalAlignment(3)
+                        end)
+                        pcall(function()
+                            slot:SetVerticalAlignment(3)
+                        end)
+                    end
+                    pcall(function()
+                        element.ItemName:SetAutoWrapText(true)
+                        local font = element.ItemName:GetFont()
+                        font.Size = 12
+                        element.ItemName:SetFont(font)
+                    end)
+                    existing[entry.identity] = true
+                    appended = appended + 1
+                end
+            end
+        end
+    end)
+    if not append_ok then
+        log("Vehicle-part catalog completion stopped safely: " ..
+            tostring(append_error))
+        return
+    end
+    log("Added " .. tostring(appended) ..
+        " omitted vehicle-part item(s) to the native catalog" ..
+        (query ~= "" and (" for search '" .. query .. "'") or "") .. ".")
+end
+
+local function schedule_vehicle_catalog_supplement(
+    widget,
+    delay_ms,
+    allow_empty
+)
+    item_supplement_token = item_supplement_token + 1
+    local token = item_supplement_token
+    ExecuteWithDelay(delay_ms or 450, function()
+        ExecuteInGameThread(function()
+            if token == item_supplement_token
+                and valid(item_widget)
+                and widget == item_widget then
+                append_missing_vehicle_catalog_items(widget, allow_empty)
+            end
+        end)
+    end)
+end
+
+local function ensure_vehicle_catalog_search_hook()
+    if item_search_hooked then return end
+    local ok, hook_id = pcall(function()
+        return RegisterHook(
+            "/Game/UI/ItemSpawnerMenu/ItemSpawnerMenu.ItemSpawnerMenu_C:" ..
+            "BndEvt__ItemSpawnerMenu_EditableText_80_" ..
+            "K2Node_ComponentBoundEvent_1_" ..
+            "OnEditableTextChangedEvent__DelegateSignature",
+            function()
+                local query = item_catalog_query(item_widget)
+                if query == "" then
+                    schedule_vehicle_catalog_supplement(
+                        item_widget,
+                        750,
+                        true
+                    )
+                else
+                    schedule_vehicle_catalog_supplement(
+                        item_widget,
+                        225,
+                        false
+                    )
+                end
+            end
+        )
+    end)
+    if ok and hook_id then
+        item_search_hooked = true
+        log("Vehicle-part catalog search completion hook installed.")
+    else
+        log("Vehicle-part catalog search completion hook unavailable.")
+    end
+end
+
 local function ensure_item_catalog_layout_hook()
     if item_layout_hooked then return end
     local ok, hook_id = pcall(function()
@@ -548,6 +805,7 @@ local function ensure_item_catalog_layout_hook()
 end
 
 local function close_item_catalog()
+    item_supplement_token = item_supplement_token + 1
     if valid(item_widget) then
         pcall(function() item_widget:RemoveFromParent() end)
     end
@@ -596,6 +854,7 @@ local function open_item_catalog()
     ensure_item_catalog_layout_hook()
     configure_native_item_catalog_layout(item_widget)
     ensure_item_click_hook()
+    ensure_vehicle_catalog_search_hook()
     item_widget:AddToViewport(10001)
     local pc = get_pc()
     if valid(pc) then
@@ -613,7 +872,8 @@ local function open_item_catalog()
             end
         end)
     end)
-    log("Native item catalog opened without registry preload.")
+    schedule_vehicle_catalog_supplement(item_widget, 300, true)
+    log("Native item catalog opened with vehicle-part completion.")
 end
 
 local function close_paint_studio()

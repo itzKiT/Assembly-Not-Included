@@ -8,7 +8,7 @@ Verify the game through Steam. Do not delete the descriptor supplied by the game
 
 Confirm:
 
-- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Release v0.6.5 was tested with Git SHA `c2ac2464`; stable, non-zDEV, and other experimental commits are not verified.
+- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Release v0.6.6 was tested with Git SHA `c2ac2464`; stable, non-zDEV, and other experimental commits are not verified.
 - `AssemblyNotIncluded\enabled.txt` exists.
 - `AssemblyNotIncluded\Scripts\main.lua` exists.
 - `BPModLoaderMod` and `BPML_GenericFunctions` are enabled.
@@ -33,6 +33,12 @@ Also confirm that the UTOC signature bypass is installed.
 4. Reinstall the current release.
 
 Never overwrite the game's official package files with mod packages.
+
+## Supplemental vehicle parts have no image
+
+Some vehicle parts omitted by the game's native catalog do not expose a usable native thumbnail mapping. Assembly Not Included still makes those parts searchable and spawnable, but their tile may use the game's missing-image presentation. Expanded thumbnail support remains under development.
+
+This does not indicate a missing item class or failed spawn.
 
 ## Rust removal or polishing stalls or crashes
 

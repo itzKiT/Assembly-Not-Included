@@ -14,14 +14,14 @@ steamapps\common\Drive Beyond Horizons\
 
 Install:
 
-1. Download and install the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest). Release v0.6.5 was tested with UE4SS Git SHA `c2ac2464`. Stable, non-zDEV, and other experimental commits are not verified.
+1. Download and install the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest). Release v0.6.6 was tested with UE4SS Git SHA `c2ac2464`. Stable, non-zDEV, and other experimental commits are not verified.
 2. Enable UE4SS `BPModLoaderMod`.
 3. Enable UE4SS `BPML_GenericFunctions`.
 4. [Drive Beyond Horizons UTOC Signature Bypass](https://www.nexusmods.com/drivebeyondhorizons/mods/8)
 
 Confirm the zDEV experimental UE4SS proxy DLL is beside the game executable and that both required UE4SS mods are enabled. After starting the game, verify that the second line of `UE4SS.log` reports Git SHA `c2ac2464`.
 
-Release v0.6.5 was tested with Drive Beyond Horizons Steam build `24063845`.
+Release v0.6.6 was tested with Drive Beyond Horizons Steam build `24071320`.
 
 ## 3. Install Assembly Not Included
 
