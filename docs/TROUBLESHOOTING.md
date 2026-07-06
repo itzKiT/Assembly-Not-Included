@@ -36,6 +36,8 @@ Never overwrite the game's official package files with mod packages.
 
 ## Supplemental vehicle parts have no image
 
+Enter at least three search characters to show supplemental vehicle parts. They are intentionally search-only and capped at 64 results to prevent repeated-open and multiplayer-host object pressure.
+
 Some vehicle parts omitted by the game's native catalog do not expose a usable native thumbnail mapping. Assembly Not Included still makes those parts searchable and spawnable, but their tile may use the game's missing-image presentation. Expanded thumbnail support remains under development.
 
 This does not indicate a missing item class or failed spawn.

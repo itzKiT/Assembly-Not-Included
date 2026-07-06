@@ -6,11 +6,15 @@ Complete vehicle-parts catalog and input-stability update.
 
 - Added omitted vehicle and engine parts from the current game build to the item spawner.
 - Added coverage for Escada, P-51/French Utility, Loft/German Compact, Kage/Japanese Sporty, Tomahawk/Muscle Car, Peak, Speedle, and isolated missing parts from other vehicle families.
-- Preserved the fast native item catalog and appended only concrete vehicle-item classes that the native catalog omitted.
+- Preserved the fast native item catalog and indexed only concrete vehicle-item classes that the native catalog omitted.
 - Excluded master, template, projectile, debug, and non-item Blueprint classes from supplemental spawning.
 - Kept the compact eight-column catalog layout.
-- Added debounced supplemental search results without replacing the native catalog.
-- Delayed empty-search rebuilding until the native grid finishes removing its previous results, preventing search-clear crashes.
+- Made supplemental vehicle parts search-only with a three-character minimum and a 64-result safety cap.
+- Added zero supplemental widgets during normal catalog opening, preventing repeated-open object accumulation.
+- Removed generic `/CarsV2/` path text from supplemental matching so broad terms cannot create hundreds of unrelated tiles.
+- Re-resolved item classes for each result instead of retaining stale UE4SS userdata.
+- Released supplemental widget references when searches change or the catalog closes.
+- Fixed repeated item-spawner crashes, including the higher object pressure observed while hosting multiplayer.
 - Strengthened guarded game-input restoration after item spawning so control returns without an extra F7 cycle.
 - Removed experimental thumbnail mutation after testing showed it could destabilize catalog rebuilding.
 - Known limitation: supplemental vehicle parts may display without an item image when the game does not provide a usable native thumbnail mapping. Thumbnail support remains under development.
