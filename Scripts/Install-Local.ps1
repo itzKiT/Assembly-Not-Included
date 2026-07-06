@@ -11,9 +11,11 @@ $gameRootPath = [System.IO.Path]::GetFullPath($GameRoot)
 $projectRoot = Join-Path $gameRootPath "DriveBeyondHorizons"
 $shippingExecutable = Join-Path $projectRoot "Binaries\Win64\DriveBeyondHorizons-Win64-Shipping.exe"
 $requiredUe4ssRelease = "https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest"
+$requiredUe4ssCommit = "c2ac2464"
 
 Write-Host "Required UE4SS build: zDEV archive from $requiredUe4ssRelease"
-Write-Host "Stable and non-zDEV UE4SS builds are not supported."
+Write-Host "Tested UE4SS Git SHA: $requiredUe4ssCommit"
+Write-Host "Stable, non-zDEV, and other experimental commits are not verified."
 
 if (-not (Test-Path -LiteralPath $shippingExecutable)) {
     throw "Drive Beyond Horizons was not found at: $gameRootPath"
@@ -34,7 +36,7 @@ if (-not (Get-ChildItem -LiteralPath $win64 -Recurse -File -Filter "*UTOC*Bypass
 }
 
 if ($missing.Count -gt 0) {
-    throw "Missing prerequisite(s): $($missing -join ', '). Install the zDEV UE4SS experimental-latest build from $requiredUe4ssRelease."
+    throw "Missing prerequisite(s): $($missing -join ', '). Install the zDEV UE4SS build tested at Git SHA $requiredUe4ssCommit from $requiredUe4ssRelease."
 }
 
 if ($PSCmdlet.ShouldProcess($projectRoot, "Install Assembly Not Included")) {

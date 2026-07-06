@@ -7,6 +7,7 @@ Press **F7** in game to open or close Assembly Not Included.
 ## Highlights
 
 - Searchable eight-column item catalog
+- Full Petrol, Diesel, Oil, and Water barrel spawning
 - Completed-vehicle spawner covering the current vehicle roster
 - Custom spray-can color and finish selection
 - Eight persistent, automatically saved paint-color slots
@@ -22,15 +23,17 @@ Press **F7** in game to open or close Assembly Not Included.
 ## Requirements
 
 - Drive Beyond Horizons on Steam
-- **Required:** the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest), with `BPModLoaderMod` and `BPML_GenericFunctions` enabled. Stable and non-zDEV UE4SS builds are not supported.
+- **Required:** the **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest), with `BPModLoaderMod` and `BPML_GenericFunctions` enabled. This release was tested with UE4SS Git SHA `c2ac2464`; verify the SHA on the second line of `UE4SS.log`. Stable, non-zDEV, and other experimental commits are not verified.
 - [Drive Beyond Horizons UTOC Signature Bypass](https://www.nexusmods.com/drivebeyondhorizons/mods/8)
 
 The release does not redistribute UE4SS, the signature bypass, or game files.
 
+Tested game version: Drive Beyond Horizons Steam build `24063845`.
+
 ## Installation
 
 1. Install and verify the prerequisites above.
-2. Download `AssemblyNotIncluded-v1.6.0.zip` from the Releases page.
+2. Download `AssemblyNotIncluded-v0.6.5.zip` from the Releases page.
 3. Extract the archive.
 4. Copy the included `DriveBeyondHorizons` folder into:
 
@@ -59,7 +62,9 @@ The Unreal assets target **Unreal Engine 5.2.1**. See [Building from source](doc
 
 ## Safety
 
-Back up important saves before installing any gameplay mod. Use this project in single-player environments and keep only one copy of the mod installed.
+Back up important saves before installing any gameplay mod. Use this release in single-player environments and keep only one copy of the mod installed.
+
+Object-heavy actions, particularly vehicle rust removal and polishing, may temporarily stall or crash on lower-performance systems. Save first, allow each action to finish, and do not click the action repeatedly.
 
 ## Licensing and approval status
 
@@ -71,4 +76,4 @@ See [Notices](NOTICE.md) for ownership, dependency, and trademark information.
 
 ## Version
 
-Current release: **v1.6.0**
+Current release: **v0.6.5**

@@ -347,6 +347,15 @@ UWidgetBlueprint* CreateMenuWidget()
         FLinearColor(0.76f, 0.012f, 0.30f, 1.0f),
         20);
 
+    UWrapBox* Barrels = AddCollapsible(
+        Tree, Content, TEXT("Barrels"), TEXT("FULL BARRELS"));
+    AddButtons(Tree, Barrels, {
+        {TEXT("Btn_BarrelPetrol"), TEXT("Petrol  |  100 L")},
+        {TEXT("Btn_BarrelDiesel"), TEXT("Diesel  |  100 L")},
+        {TEXT("Btn_BarrelOil"), TEXT("Oil  |  20 L")},
+        {TEXT("Btn_BarrelWater"), TEXT("Water  |  100 L")}
+    });
+
     UWrapBox* Paint = AddCollapsible(
         Tree, Content, TEXT("Paint"), TEXT("PAINT STUDIO"));
     AddButtons(Tree, Paint, {

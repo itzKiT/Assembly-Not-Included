@@ -15,22 +15,19 @@ local cached_player_controller = nil
 local item_widget = nil
 local paint_widget = nil
 local speedometer_widget = nil
-local speedometer_owner = nil
+local speedometer_value_widget = nil
 local speedometer_last_text = nil
 local speedometer_last_error = nil
-local speedometer_tick_hooked = false
-local speedometer_elapsed = 0.0
 local speedometer_visible = false
-local vehicle_tick_source = nil
-local vehicle_hook_elapsed = 0.0
+local speedometer_loop_started = false
 local vehicle_tuning_baselines = {}
-local vehicle_tuning_elapsed = 0.0
-local vehicle_tuning_last_error = nil
 local vehicle_tuning_saved = {}
 local vehicle_tuning_dirty = false
-local vehicle_tuning_save_elapsed = 0.0
 local vehicle_tank_maximums = {}
+local get_current_vehicle = nil
 local sync_vehicle_tuning_controls = nil
+local update_vehicle_tuning_from_ui = nil
+local refresh_speedometer_loop = nil
 local flush_vehicle_tunes = nil
 local finalize_spawned_vehicle = nil
 local menu_open = false
@@ -77,6 +74,25 @@ local VEHICLES = {
     Toilet = "/Game/BP/CarsV2/ToiletCar",
     HotDog = "/Game/BP/CarsV2/HotDog_Trailer",
     Trailer = "/Game/BP/CarsV2/Vehicle_Trailer",
+}
+
+local FULL_BARRELS = {
+    Petrol = {
+        path = "/Game/BP/Items/Movable/TankContainer/GasBarrelGaz_2",
+        fluid_type = 0,
+    },
+    Diesel = {
+        path = "/Game/BP/Items/Movable/TankContainer/GasBarrelGaz_2",
+        fluid_type = 5,
+    },
+    Oil = {
+        path = "/Game/BP/Items/Movable/TankContainer/ForcedMediumOilBarrel",
+        fluid_type = 1,
+    },
+    Water = {
+        path = "/Game/BP/Items/Movable/TankContainer/WaterBarrel_01",
+        fluid_type = 2,
+    },
 }
 
 local function log(message)
@@ -242,6 +258,12 @@ local function restore_game_input()
 end
 
 local function close_menu()
+    if update_vehicle_tuning_from_ui and valid(menu_widget) then
+        local vehicle = get_current_vehicle and get_current_vehicle() or nil
+        if valid(vehicle) then
+            pcall(update_vehicle_tuning_from_ui, vehicle)
+        end
+    end
     if flush_vehicle_tunes then
         pcall(flush_vehicle_tunes)
     end
@@ -251,6 +273,9 @@ local function close_menu()
     menu_widget = nil
     menu_open = false
     restore_game_input()
+    if refresh_speedometer_loop then
+        pcall(refresh_speedometer_loop)
+    end
 end
 
 local function find_named_widget(widget, name)
@@ -265,6 +290,7 @@ local function find_named_widget(widget, name)
 end
 
 local SECTION_PANELS = {
+    Barrels = "Panel_Barrels",
     Paint = "Panel_Paint",
     Vehicles = "Panel_Vehicles",
     VehicleTools = "Panel_VehicleTools",
@@ -1111,6 +1137,70 @@ local function spawn_item(path, label)
     return nil
 end
 
+local function configure_full_barrel(actor, fluid_type)
+    if not valid(actor) then return false end
+    local component_ok, component =
+        pcall(function() return actor.ItemTankComponent end)
+    if not component_ok or not valid(component) then return false end
+
+    local maximum_ok, maximum =
+        pcall(function() return tonumber(component.MaxQuantity) end)
+    if not maximum_ok or not maximum or maximum <= 0 then return false end
+
+    local map_ok, fluid_map =
+        pcall(function() return component.FluidMap end)
+    if not map_ok or not fluid_map then return false end
+
+    local configured = pcall(function()
+        fluid_map:Empty()
+        fluid_map:Add(fluid_type, maximum)
+    end)
+    if not configured then return false end
+
+    set_if_present(component, "ForceValidFluid", true)
+    set_if_present(component, "ForceValidFluidType", fluid_type)
+    set_if_present(component, "ActualQuantity", maximum)
+    call_if_present(component, "UpdateFluidList")
+    call_if_present(component, "UpdateFluidPercent")
+    call_if_present(component, "OnRep_FluidList")
+    call_if_present(component, "OnRep_ActualQuantity")
+    call_if_present(actor, "UpdateFluidList")
+    return true
+end
+
+local function spawn_full_barrel(key)
+    local definition = FULL_BARRELS[key]
+    if not definition then
+        show_message("Unknown barrel type: " .. tostring(key))
+        return
+    end
+
+    local class = class_from_asset(definition.path)
+    local world, position, rotation = get_spawn_transform(220)
+    if not valid(class) or not valid(world) then
+        show_message("The " .. key .. " barrel class is unavailable.")
+        return
+    end
+
+    local ok, actor = pcall(function()
+        return world:SpawnActor(class, position, rotation)
+    end)
+    if not ok or not valid(actor) then
+        show_message("Could not spawn the " .. key .. " barrel.")
+        return
+    end
+
+    configure_full_barrel(actor, definition.fluid_type)
+    for _, delay in ipairs({150, 500, 1000}) do
+        ExecuteWithDelay(delay, function()
+            ExecuteInGameThread(function()
+                configure_full_barrel(actor, definition.fluid_type)
+            end)
+        end)
+    end
+    show_message("Spawned a full " .. key .. " barrel.")
+end
+
 local function modify_loaded(class_names, callback)
     local count = 0
     for _, class_name in ipairs(class_names) do
@@ -1235,7 +1325,7 @@ function ANI_ToolState.toggle_infinite_brushes()
     end
 end
 
-local function get_current_vehicle()
+get_current_vehicle = function()
     local pc = get_pc()
     if valid(pc) and valid(pc.Vehicle) then return pc.Vehicle end
     local pawn = get_pawn()
@@ -1248,13 +1338,6 @@ local function get_current_vehicle()
         end
     end
     return nil
-end
-
-local function speedometer_player_id()
-    local pc = get_pc()
-    if not valid(pc) then return nil end
-    local ok, name = pcall(function() return pc:GetFullName() end)
-    return ok and tostring(name) or nil
 end
 
 local function hide_speedometer()
@@ -1273,39 +1356,25 @@ local function get_speedometer_vehicle()
 end
 
 local function ensure_speedometer_widget()
-    local owner = speedometer_player_id()
-    if not owner then return nil end
-
-    if speedometer_owner ~= owner then
-        if valid(speedometer_widget) then
-            pcall(function() speedometer_widget:RemoveFromParent() end)
-        end
-        speedometer_widget = nil
-        speedometer_owner = owner
-        speedometer_last_text = nil
-        speedometer_visible = false
-    end
-
     if not valid(speedometer_widget) then
         speedometer_widget = create_widget(SPEEDOMETER_ASSET)
         if not valid(speedometer_widget) then return nil end
         speedometer_widget:AddToViewport(9000)
         pcall(function() speedometer_widget:SetVisibility(3) end)
+        speedometer_value_widget =
+            find_named_widget(speedometer_widget, "SpeedValue")
         speedometer_last_text = nil
+        speedometer_visible = true
         log("Automatic vehicle speedometer loaded.")
+    elseif not valid(speedometer_value_widget) then
+        speedometer_value_widget =
+            find_named_widget(speedometer_widget, "SpeedValue")
     end
     return speedometer_widget
 end
 
-local function widget_is_in_viewport(widget)
-    if not valid(widget) then return false end
-    local ok, result = pcall(function() return widget:IsInViewport() end)
-    return ok and result == true
-end
-
 local function update_speedometer_once(vehicle)
-    if menu_open or widget_is_in_viewport(item_widget) or
-        widget_is_in_viewport(paint_widget) then
+    if menu_open or valid(item_widget) or valid(paint_widget) then
         hide_speedometer()
         return
     end
@@ -1334,13 +1403,14 @@ local function update_speedometer_once(vehicle)
     local display = string.format("%03d  KM/H", kilometers_per_hour)
 
     if display ~= speedometer_last_text then
-        local value = find_named_widget(widget, "SpeedValue")
-        if valid(value) then
-            value:SetText(FText(display))
+        if valid(speedometer_value_widget) then
+            speedometer_value_widget:SetText(FText(display))
             speedometer_last_text = display
         end
     end
-    pcall(function() widget:SetVisibility(3) end)
+    if not speedometer_visible then
+        pcall(function() widget:SetVisibility(3) end)
+    end
     speedometer_visible = true
 end
 
@@ -1463,7 +1533,6 @@ flush_vehicle_tunes = function()
     end
     file:close()
     vehicle_tuning_dirty = false
-    vehicle_tuning_save_elapsed = 0.0
     return true
 end
 
@@ -1550,7 +1619,7 @@ sync_vehicle_tuning_controls = function()
     update_tuning_label(grip_multiplier_from_position(grip_position))
 end
 
-local function update_vehicle_tuning_from_ui(vehicle)
+update_vehicle_tuning_from_ui = function(vehicle)
     if not menu_open or not valid(menu_widget) or not valid(vehicle) then return end
 
     local grip_slider = find_named_widget(menu_widget, "Slider_TireGrip")
@@ -1573,7 +1642,6 @@ local function update_vehicle_tuning_from_ui(vehicle)
             grip_position = new_grip,
         }
         vehicle_tuning_dirty = true
-        vehicle_tuning_save_elapsed = 0.0
     end
     apply_vehicle_tune(vehicle, baseline, false)
 end
@@ -1602,88 +1670,9 @@ local function reset_active_vehicle_tune()
     show_message("Active vehicle tire grip restored to stock.")
 end
 
-local function on_vehicle_tick(context, delta_seconds)
-    context = unwrap_hook_value(context)
-    if valid(context) then
-        if not valid(vehicle_tick_source) then
-            vehicle_tick_source = context
-            vehicle_hook_elapsed = 0.0
-        elseif unreal_object_id(context) ~=
-            unreal_object_id(vehicle_tick_source) then
-            return
-        end
-    end
+load_vehicle_tunes()
 
-    local frame_delta =
-        tonumber(unwrap_hook_value(delta_seconds)) or 0.016
-    vehicle_hook_elapsed =
-        vehicle_hook_elapsed + math.max(0.0, frame_delta)
-    if vehicle_hook_elapsed < 0.05 then return end
-    local delta = vehicle_hook_elapsed
-    vehicle_hook_elapsed = 0.0
-
-    local vehicle = get_speedometer_vehicle()
-    if not valid(vehicle) then
-        hide_speedometer()
-        return
-    end
-
-    if vehicle_tuning_dirty then
-        vehicle_tuning_save_elapsed =
-            vehicle_tuning_save_elapsed + math.max(0.0, delta)
-        if vehicle_tuning_save_elapsed >= 0.5 then
-            pcall(flush_vehicle_tunes)
-        end
-    end
-
-    vehicle_tuning_elapsed =
-        vehicle_tuning_elapsed + math.max(0.0, delta)
-    if menu_open then
-        hide_speedometer()
-        if vehicle_tuning_elapsed >= 0.05 then
-            vehicle_tuning_elapsed = 0.0
-            local tune_ok, tune_err =
-                pcall(update_vehicle_tuning_from_ui, vehicle)
-            if not tune_ok then
-                local message = tostring(tune_err)
-                if message ~= vehicle_tuning_last_error then
-                    vehicle_tuning_last_error = message
-                    log("Vehicle tuning update error: " .. message)
-                end
-            else
-                vehicle_tuning_last_error = nil
-            end
-        end
-        return
-    end
-
-    if vehicle_tuning_elapsed >= 0.1 then
-        vehicle_tuning_elapsed = 0.0
-        local tune_ok, tune_err = pcall(function()
-            local baseline = tuning_baseline_for(vehicle)
-            apply_vehicle_tune(vehicle, baseline, false)
-        end)
-        if not tune_ok then
-            local message = tostring(tune_err)
-            if message ~= vehicle_tuning_last_error then
-                vehicle_tuning_last_error = message
-                log("Vehicle tuning persistence error: " .. message)
-            end
-        else
-            vehicle_tuning_last_error = nil
-        end
-    end
-
-    if widget_is_in_viewport(item_widget) or
-        widget_is_in_viewport(paint_widget) then
-        hide_speedometer()
-        return
-    end
-
-    speedometer_elapsed = speedometer_elapsed + math.max(0.0, delta)
-    if speedometer_elapsed < 0.1 then return end
-    speedometer_elapsed = 0.0
-
+local function update_speedometer_safely(vehicle)
     local ok, err = pcall(update_speedometer_once, vehicle)
     if not ok then
         local message = tostring(err)
@@ -1696,23 +1685,35 @@ local function on_vehicle_tick(context, delta_seconds)
     end
 end
 
-load_vehicle_tunes()
-
-local function install_speedometer_tick_hook()
-    if speedometer_tick_hooked then return end
-    LoadAsset("/Game/AVS_Template/Template/AVS_Template_Vehicle")
-    local tick_event =
-        "/Game/AVS_Template/Template/AVS_Template_Vehicle." ..
-        "AVS_Template_Vehicle_C:ReceiveTick"
-    local ok, hook_id = pcall(function()
-        return RegisterHook(tick_event, on_vehicle_tick)
+local function schedule_speedometer_monitor(delay)
+    ExecuteWithDelay(delay, function()
+        ExecuteInGameThread(function()
+            local next_delay = 1500
+            local ok, err = pcall(function()
+                local vehicle = get_speedometer_vehicle()
+                if valid(vehicle) then
+                    update_speedometer_safely(vehicle)
+                    next_delay = 500
+                else
+                    hide_speedometer()
+                end
+            end)
+            if not ok then
+                local message = tostring(err)
+                if message ~= speedometer_last_error then
+                    speedometer_last_error = message
+                    log("Speedometer monitor error: " .. message)
+                end
+            end
+            schedule_speedometer_monitor(next_delay)
+        end)
     end)
-    if ok and hook_id then
-        speedometer_tick_hooked = true
-        log("Vehicle-driven speedometer hook installed.")
-    else
-        log("Vehicle-driven speedometer hook was unavailable.")
-    end
+end
+
+refresh_speedometer_loop = function()
+    if speedometer_loop_started then return end
+    speedometer_loop_started = true
+    schedule_speedometer_monitor(1000)
 end
 
 local function toggle_vehicle_invulnerability()
@@ -3147,6 +3148,7 @@ end
 
 register("Close", close_menu)
 register("OpenItemCatalog", open_item_catalog)
+register("ToggleBarrels", function() set_expanded_section("Barrels") end)
 register("TogglePaint", function() set_expanded_section("Paint") end)
 register("ToggleVehicles", function() set_expanded_section("Vehicles") end)
 register("ToggleVehicleTools", function() set_expanded_section("VehicleTools") end)
@@ -3178,6 +3180,22 @@ register("PaintSwatch8", function()
     spawn_saved_paint_swatch(8)
 end)
 register("ClearPaintSwatches", ANI_ToolState.clear_paint_swatches)
+register("BarrelPetrol", function()
+    spawn_full_barrel("Petrol")
+    close_menu()
+end)
+register("BarrelDiesel", function()
+    spawn_full_barrel("Diesel")
+    close_menu()
+end)
+register("BarrelOil", function()
+    spawn_full_barrel("Oil")
+    close_menu()
+end)
+register("BarrelWater", function()
+    spawn_full_barrel("Water")
+    close_menu()
+end)
 register("PaintStandard", function()
     paint_infinite_next = false
     update_paint_mode_buttons()
@@ -3274,9 +3292,7 @@ RegisterConsoleCommandGlobalHandler("assemblynotincluded", function()
     return true
 end)
 
-ExecuteWithDelay(1500, function()
-    ExecuteInGameThread(install_speedometer_tick_hook)
-end)
+refresh_speedometer_loop()
 for _, delay in ipairs({5000, 15000, 30000}) do
     ExecuteWithDelay(delay, function()
         ExecuteInGameThread(function()

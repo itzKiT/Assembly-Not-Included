@@ -1,5 +1,25 @@
 # Changelog
 
+## v0.6.5
+
+Compatibility, performance, and spawning update.
+
+- Added a Full Barrels section with directly spawnable full containers:
+  - Petrol: 100 L
+  - Diesel: 100 L
+  - Oil: 20 L
+  - Water: 100 L
+- Replaced the vehicle `ReceiveTick` and player-controller transition hooks with one throttled speedometer monitor.
+- Reduced speedometer work to two updates per second while driving and one lightweight vehicle check every 1.5 seconds while on foot.
+- Cached the speedometer value widget and stopped repeated widget ownership, child lookup, and visibility work.
+- Preserved tire-grip changes when closing the menu without continuously reapplying them every frame.
+- Removed diagnostic barrel probes and temporary vehicle-entry hooks from the production runtime.
+- Retained the compact eight-column item catalog and existing paint, vehicle, player, and world tools.
+- Validated the release against Drive Beyond Horizons Steam build `24063845`.
+- Validated the release with UE4SS zDEV Git SHA `c2ac2464`.
+- Added a lower-performance-system warning: object-heavy actions such as rust removal and polishing may stall or crash on some systems. Save first and avoid repeated clicks while an action is running.
+- Multiplayer authority support is not included in this release; use the current release in single-player environments.
+
 ## v1.6.0
 
 First broadly tested public release and stability overhaul of Assembly Not Included.

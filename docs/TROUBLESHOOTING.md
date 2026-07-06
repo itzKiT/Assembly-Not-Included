@@ -8,7 +8,7 @@ Verify the game through Steam. Do not delete the descriptor supplied by the game
 
 Confirm:
 
-- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Stable and non-zDEV builds are not supported.
+- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Release v0.6.5 was tested with Git SHA `c2ac2464`; stable, non-zDEV, and other experimental commits are not verified.
 - `AssemblyNotIncluded\enabled.txt` exists.
 - `AssemblyNotIncluded\Scripts\main.lua` exists.
 - `BPModLoaderMod` and `BPML_GenericFunctions` are enabled.
@@ -33,6 +33,17 @@ Also confirm that the UTOC signature bypass is installed.
 4. Reinstall the current release.
 
 Never overwrite the game's official package files with mod packages.
+
+## Rust removal or polishing stalls or crashes
+
+These actions inspect and update many attached vehicle components. On lower-performance systems, allow the current action to finish and do not click the button repeatedly.
+
+If a crash occurs:
+
+1. Do not restart the game before copying `UE4SS.log`.
+2. Record the exact UE4SS Git SHA from the second log line.
+3. Include the newest `Saved\Crashes` folder and current `DriveBeyondHorizons.log`.
+4. Confirm the game build and whether the vehicle was freshly spawned.
 
 ## Reporting a problem
 
