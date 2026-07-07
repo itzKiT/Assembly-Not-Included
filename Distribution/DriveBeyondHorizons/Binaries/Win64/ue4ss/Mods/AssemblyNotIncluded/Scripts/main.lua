@@ -43,6 +43,7 @@ local menu_actions = {}
 local item_click_hooked = false
 local item_layout_hooked = false
 local item_search_hooked = false
+local item_remove_hooked = false
 local item_supplement_token = 0
 local paint_infinite_next = false
 local paint_watch_token = 0
@@ -54,7 +55,6 @@ ANI_ToolState = {
     paint_swatch_limit = 8,
     paint_studio_opening = false,
     vehicle_catalog_entries = nil,
-    vehicle_catalog_missing_entries = nil,
     vehicle_catalog_widgets = {},
 }
 
@@ -543,6 +543,13 @@ local function asset_field_string(field)
     return ok and tostring(value) or tostring(field)
 end
 
+local function catalog_search_text(asset_name, package_name)
+    local raw = string.lower(tostring(asset_name))
+    local spaced = raw:gsub("[^%w]+", " "):gsub("%s+", " ")
+    local compact = spaced:gsub("%s+", "")
+    return raw .. " " .. spaced .. " " .. compact
+end
+
 local function load_vehicle_catalog_supplement()
     if ANI_ToolState.vehicle_catalog_entries then
         return ANI_ToolState.vehicle_catalog_entries
@@ -588,13 +595,14 @@ local function load_vehicle_catalog_supplement()
     for _, wrapped in ipairs(assets) do
         local data = wrapped
         pcall(function() data = data:get() end)
+        local package_path = ""
         local package_name = ""
         local asset_type = ""
         local asset_name = ""
         pcall(function()
-            package_name =
-                string.lower(asset_field_string(data.PackageName))
+            package_path = asset_field_string(data.PackageName)
         end)
+        package_name = string.lower(package_path)
         pcall(function()
             asset_type = asset_field_string(data.AssetClassPath.AssetName)
         end)
@@ -622,9 +630,11 @@ local function load_vehicle_catalog_supplement()
                     seen[identity] = true
                     entries[#entries + 1] = {
                         identity = identity,
+                        class_object_path =
+                            identity:match("^%S+%s+(.+)$") or identity,
+                        asset_path = package_path,
                         name = asset_name,
-                        search = string.lower(asset_name .. " " ..
-                            (package_name:match("/actors/([^/]+)") or "")),
+                        search = catalog_search_text(asset_name, package_name),
                     }
                 end
             end
@@ -638,6 +648,32 @@ local function load_vehicle_catalog_supplement()
     log("Indexed " .. tostring(#entries) ..
         " concrete vehicle-part classes for catalog completion.")
     return entries
+end
+
+local function resolve_catalog_entry_class(entry)
+    if not entry then return nil end
+    local item_class = nil
+    if entry.identity then
+        pcall(function() item_class = StaticFindObject(entry.identity) end)
+        if valid(item_class) then return item_class end
+    end
+    if entry.class_object_path then
+        pcall(function()
+            item_class = StaticFindObject(entry.class_object_path)
+        end)
+        if valid(item_class) then return item_class end
+        pcall(function()
+            item_class = StaticFindObject(
+                "BlueprintGeneratedClass " .. entry.class_object_path
+            )
+        end)
+        if valid(item_class) then return item_class end
+    end
+    if entry.asset_path and entry.asset_path ~= "" then
+        item_class = class_from_asset(entry.asset_path)
+        if valid(item_class) then return item_class end
+    end
+    return nil
 end
 
 local function item_catalog_query(widget)
@@ -660,70 +696,22 @@ local function release_supplemental_catalog_widgets()
     ANI_ToolState.vehicle_catalog_widgets = {}
 end
 
-local function initialize_missing_vehicle_catalog(widget)
-    if not valid(widget) or widget ~= item_widget then return end
-    if ANI_ToolState.vehicle_catalog_missing_entries then return end
-    local grid_ok, grid = pcall(function() return widget.Grid end)
-    if not grid_ok or not valid(grid) then return end
-
-    local entries = load_vehicle_catalog_supplement()
-    if #entries == 0 then return end
-
-    local existing = {}
-    local child_count = 0
-    pcall(function() child_count = grid:GetChildrenCount() end)
-    for index = 0, child_count - 1 do
-        local child = nil
-        pcall(function() child = grid:GetChildAt(index) end)
-        if valid(child) then
-            local item_class = nil
-            pcall(function() item_class = child.ItemToSpawn end)
-            if valid(item_class) then
-                pcall(function()
-                    existing[tostring(item_class:GetFullName())] = true
-                end)
-            end
-        end
-    end
-
-    local missing = {}
-    for _, entry in ipairs(entries) do
-        if not existing[entry.identity] then
-            missing[#missing + 1] = entry
-        end
-    end
-    ANI_ToolState.vehicle_catalog_missing_entries = missing
-    log("Catalog completion identified " .. tostring(#missing) ..
-        " omitted vehicle-part classes; supplemental tiles are search-only.")
-end
-
 local function append_missing_vehicle_catalog_items(widget)
     if not valid(widget) or widget ~= item_widget then return end
     local grid_ok, grid = pcall(function() return widget.Grid end)
     if not grid_ok or not valid(grid) then return end
 
-    local entries = ANI_ToolState.vehicle_catalog_missing_entries
+    local entries = ANI_ToolState.vehicle_catalog_entries
+    if not entries then
+        entries = load_vehicle_catalog_supplement()
+    end
     if not entries or #entries == 0 then return end
     local query = item_catalog_query(widget)
     if #query < 3 then return end
 
     release_supplemental_catalog_widgets()
-    local existing = {}
     local child_count = 0
     pcall(function() child_count = grid:GetChildrenCount() end)
-    for index = 0, child_count - 1 do
-        local child = nil
-        pcall(function() child = grid:GetChildAt(index) end)
-        if valid(child) then
-            local item_class = nil
-            pcall(function() item_class = child.ItemToSpawn end)
-            if valid(item_class) then
-                pcall(function()
-                    existing[tostring(item_class:GetFullName())] = true
-                end)
-            end
-        end
-    end
 
     local pc = get_pc()
     local library =
@@ -735,48 +723,51 @@ local function append_missing_vehicle_catalog_items(widget)
     end
 
     local appended = 0
+    local matched = 0
+    local unavailable = 0
     local columns = 8
-    local result_limit = 64
+    local result_limit = #entries
     local append_ok, append_error = pcall(function()
         for _, entry in ipairs(entries) do
-            if appended >= result_limit then break end
-            if not existing[entry.identity]
-                and string.find(entry.search, query, 1, true) then
-                local item_class = StaticFindObject(entry.identity)
-                if not valid(item_class) then
-                    log("Skipped unavailable vehicle-part class: " ..
-                        entry.identity)
-                else
-                    local element =
-                        library:Create(pc, element_class, pc)
-                    if valid(element) then
-                        element.ItemToSpawn = item_class
-                        element.Parent = widget
-                        element.Size = 200
-                        local position = child_count + appended
-                        local row = math.floor(position / columns)
-                        local column = position % columns
-                        local slot =
-                            grid:AddChildToGrid(element, row, column)
-                        if valid(slot) then
+            if string.find(entry.search, query, 1, true) then
+                matched = matched + 1
+                if appended < result_limit then
+                    local item_class = resolve_catalog_entry_class(entry)
+                    if not valid(item_class) then
+                        unavailable = unavailable + 1
+                        log("Skipped unavailable vehicle-part class: " ..
+                            entry.identity)
+                    else
+                        local element =
+                            library:Create(pc, element_class, pc)
+                        if valid(element) then
+                            element.ItemToSpawn = item_class
+                            element.Parent = widget
+                            element.Size = 200
+                            local position = child_count + appended
+                            local row = math.floor(position / columns)
+                            local column = position % columns
+                            local slot =
+                                grid:AddChildToGrid(element, row, column)
+                            if valid(slot) then
+                                pcall(function()
+                                    slot:SetHorizontalAlignment(3)
+                                end)
+                                pcall(function()
+                                    slot:SetVerticalAlignment(3)
+                                end)
+                            end
                             pcall(function()
-                                slot:SetHorizontalAlignment(3)
+                                element.ItemName:SetAutoWrapText(true)
+                                local font = element.ItemName:GetFont()
+                                font.Size = 12
+                                element.ItemName:SetFont(font)
                             end)
-                            pcall(function()
-                                slot:SetVerticalAlignment(3)
-                            end)
+                            ANI_ToolState.vehicle_catalog_widgets[
+                                #ANI_ToolState.vehicle_catalog_widgets + 1
+                            ] = element
+                            appended = appended + 1
                         end
-                        pcall(function()
-                            element.ItemName:SetAutoWrapText(true)
-                            local font = element.ItemName:GetFont()
-                            font.Size = 12
-                            element.ItemName:SetFont(font)
-                        end)
-                        existing[entry.identity] = true
-                        ANI_ToolState.vehicle_catalog_widgets[
-                            #ANI_ToolState.vehicle_catalog_widgets + 1
-                        ] = element
-                        appended = appended + 1
                     end
                 end
             end
@@ -787,8 +778,18 @@ local function append_missing_vehicle_catalog_items(widget)
             tostring(append_error))
         return
     end
-    log("Added " .. tostring(appended) ..
-        " omitted vehicle-part item(s) for search '" .. query .. "'.")
+    log("Added " .. tostring(appended) .. " of " .. tostring(matched) ..
+        " vehicle-part completion item(s) for search '" .. query .. "'.")
+    local capped = matched - appended - unavailable
+    if capped > 0 then
+        log("Vehicle-part search '" .. query .. "' hid " ..
+            tostring(capped) ..
+            " result(s) behind the safety cap.")
+    end
+    if unavailable > 0 then
+        log("Vehicle-part search '" .. query .. "' skipped " ..
+            tostring(unavailable) .. " unresolved class(es).")
+    end
 end
 
 local function schedule_vehicle_catalog_supplement(
@@ -808,20 +809,6 @@ local function schedule_vehicle_catalog_supplement(
     end)
 end
 
-local function schedule_vehicle_catalog_initialization(widget, delay_ms)
-    item_supplement_token = item_supplement_token + 1
-    local token = item_supplement_token
-    ExecuteWithDelay(delay_ms or 300, function()
-        ExecuteInGameThread(function()
-            if token == item_supplement_token
-                and valid(item_widget)
-                and widget == item_widget then
-                initialize_missing_vehicle_catalog(widget)
-            end
-        end)
-    end)
-end
-
 local function ensure_vehicle_catalog_search_hook()
     if item_search_hooked then return end
     local ok, hook_id = pcall(function()
@@ -834,14 +821,7 @@ local function ensure_vehicle_catalog_search_hook()
                 local query = item_catalog_query(item_widget)
                 if #query < 3 then
                     item_supplement_token = item_supplement_token + 1
-                    ANI_ToolState.vehicle_catalog_widgets = {}
-                    if query == ""
-                        and not ANI_ToolState.vehicle_catalog_missing_entries then
-                        schedule_vehicle_catalog_initialization(
-                            item_widget,
-                            350
-                        )
-                    end
+                    release_supplemental_catalog_widgets()
                 else
                     schedule_vehicle_catalog_supplement(
                         item_widget,
@@ -890,6 +870,50 @@ local function close_item_catalog()
     restore_game_input()
 end
 
+local function item_catalog_is_in_viewport(widget)
+    if not valid(widget) then return false end
+    local ok, result = pcall(function() return widget:IsInViewport() end)
+    if ok then return result == true end
+    return true
+end
+
+local function reconcile_item_catalog_after_native_close()
+    if item_widget == nil then return end
+    if valid(item_widget) and item_catalog_is_in_viewport(item_widget) then
+        return
+    end
+    item_supplement_token = item_supplement_token + 1
+    release_supplemental_catalog_widgets()
+    item_widget = nil
+    restore_game_input()
+    log("Native item catalog close detected; game input restored.")
+end
+
+local function ensure_item_catalog_remove_hook()
+    if item_remove_hooked then return end
+    local ok, hook_id = pcall(function()
+        return RegisterHook(
+            "/Script/UMG.Widget:RemoveFromParent",
+            function(context)
+                local widget_ok, widget =
+                    pcall(function() return context:get() end)
+                if widget_ok and widget == item_widget then
+                    ExecuteWithDelay(75, function()
+                        ExecuteInGameThread(
+                            reconcile_item_catalog_after_native_close)
+                    end)
+                end
+            end
+        )
+    end)
+    if ok and hook_id then
+        item_remove_hooked = true
+        log("Native item catalog close/input hook installed.")
+    else
+        log("Native item catalog close/input hook unavailable.")
+    end
+end
+
 local function ensure_item_click_hook()
     if item_click_hooked then return end
     local click_function =
@@ -931,6 +955,7 @@ local function open_item_catalog()
     ensure_item_catalog_layout_hook()
     configure_native_item_catalog_layout(item_widget)
     ensure_item_click_hook()
+    ensure_item_catalog_remove_hook()
     ensure_vehicle_catalog_search_hook()
     item_widget:AddToViewport(10001)
     local pc = get_pc()
@@ -949,7 +974,6 @@ local function open_item_catalog()
             end
         end)
     end)
-    schedule_vehicle_catalog_initialization(item_widget, 300)
     log("Native item catalog opened with search-only vehicle-part completion.")
 end
 
@@ -3615,7 +3639,15 @@ local function activate_hovered_menu_button()
 end
 
 RegisterKeyBind(Key.LEFT_MOUSE_BUTTON, function()
-    ExecuteInGameThread(activate_hovered_menu_button)
+    local catalog_was_open = item_widget ~= nil
+    ExecuteInGameThread(function()
+        activate_hovered_menu_button()
+        if catalog_was_open or item_widget ~= nil then
+            ExecuteWithDelay(150, function()
+                ExecuteInGameThread(reconcile_item_catalog_after_native_close)
+            end)
+        end
+    end)
     return false
 end)
 
@@ -3623,6 +3655,23 @@ RegisterKeyBind(Key.F7, function()
     ExecuteInGameThread(open_menu)
     return false
 end)
+
+local escape_key = Key.ESCAPE or Key.ESC
+if escape_key then
+    RegisterKeyBind(escape_key, function()
+        if item_widget ~= nil then
+            ExecuteInGameThread(close_item_catalog)
+            return true
+        end
+        if menu_open then
+            ExecuteInGameThread(close_menu)
+            return true
+        end
+        return false
+    end)
+else
+    log("Escape key enum unavailable; item catalog Escape close disabled.")
+end
 
 RegisterConsoleCommandGlobalHandler("assemblynotincluded", function()
     ExecuteInGameThread(open_menu)

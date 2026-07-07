@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.6.7
+
+Item-spawner search completion and input-control update.
+
+- Expanded vehicle-part search completion so broad vehicle terms reveal all indexed matching vehicle-part asset names instead of relying on the native catalog's shorter result list.
+- Fixed broad searches such as `Tucker` not showing later matching parts, including parts that only appeared when typing a more exact asset name.
+- Removed folder-only supplemental matching so unrelated reused assets no longer appear merely because they live in a matching vehicle folder.
+- Reworked supplemental vehicle-part class resolution to load from stored asset paths instead of relying only on stale full-name lookups.
+- Kept supplemental vehicle parts search-only with a three-character minimum to avoid loading extra tiles when the item spawner opens normally.
+- Fixed Escape handling in the item spawner so accidental Escape presses no longer leave the game in a UI-only control state.
+- Added a fallback input restore when the native item-spawner Close button removes the widget outside Assembly Not Included's normal close path.
+- Removed temporary catalog diagnostics and large runtime scan logging from the production script.
+- Known limitation: supplemental vehicle parts may display without an item image when the game does not provide a usable native thumbnail mapping. Thumbnail support remains under development.
+- Lower-performance-system warning remains: object-heavy actions such as rust removal and polishing may stall or crash on some systems. Save first and avoid repeated clicks while an action is running.
+- Validated the release against Drive Beyond Horizons Steam build `24071320`.
+- Validated the release with UE4SS zDEV Git SHA `c2ac2464`.
+
 ## v0.6.6
 
 Complete vehicle-parts catalog and input-stability update.

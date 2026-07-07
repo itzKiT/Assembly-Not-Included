@@ -8,7 +8,7 @@ Verify the game through Steam. Do not delete the descriptor supplied by the game
 
 Confirm:
 
-- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Release v0.6.6 was tested with Git SHA `c2ac2464`; stable, non-zDEV, and other experimental commits are not verified.
+- The **zDEV archive** from the [UE4SS experimental-latest release](https://github.com/UE4SS-RE/RE-UE4SS/releases/tag/experimental-latest) loaded. Release v0.6.7 was tested with Git SHA `c2ac2464`; stable, non-zDEV, and other experimental commits are not verified.
 - `AssemblyNotIncluded\enabled.txt` exists.
 - `AssemblyNotIncluded\Scripts\main.lua` exists.
 - `BPModLoaderMod` and `BPML_GenericFunctions` are enabled.
@@ -36,7 +36,9 @@ Never overwrite the game's official package files with mod packages.
 
 ## Supplemental vehicle parts have no image
 
-Enter at least three search characters to show supplemental vehicle parts. They are intentionally search-only and capped at 64 results to prevent repeated-open and multiplayer-host object pressure.
+Enter at least three search characters to show supplemental vehicle parts. They are intentionally search-only to prevent repeated-open and multiplayer-host object pressure.
+
+Broad vehicle-part searches are completed from indexed vehicle asset names. For example, searching a vehicle name should reveal matching parts that the native catalog may not show in its shorter result list.
 
 Some vehicle parts omitted by the game's native catalog do not expose a usable native thumbnail mapping. Assembly Not Included still makes those parts searchable and spawnable, but their tile may use the game's missing-image presentation. Expanded thumbnail support remains under development.
 

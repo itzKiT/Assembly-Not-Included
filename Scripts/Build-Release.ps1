@@ -3,7 +3,7 @@ param(
     [Parameter(Mandatory)]
     [string]$EngineRoot,
 
-    [string]$Version = "0.6.6"
+    [string]$Version = "0.6.7"
 )
 
 $ErrorActionPreference = "Stop"

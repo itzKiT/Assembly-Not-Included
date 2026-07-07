@@ -7,7 +7,7 @@ Press **F7** in game to open or close Assembly Not Included.
 ## Highlights
 
 - Searchable eight-column item catalog
-- Search-only spawning coverage for vehicle parts omitted by the native catalog
+- Complete search-only vehicle-part completion for indexed vehicle asset names
 - Full Petrol, Diesel, Oil, and Water barrel spawning
 - Completed-vehicle spawner covering the current vehicle roster
 - Custom spray-can color and finish selection
@@ -34,7 +34,7 @@ Tested game version: Drive Beyond Horizons Steam build `24071320`.
 ## Installation
 
 1. Install and verify the prerequisites above.
-2. Download `AssemblyNotIncluded-v0.6.6.zip` from the Releases page.
+2. Download `AssemblyNotIncluded-v0.6.7.zip` from the Releases page.
 3. Extract the archive.
 4. Copy the included `DriveBeyondHorizons` folder into:
 
@@ -67,7 +67,7 @@ Back up important saves before installing any gameplay mod. Use this release in 
 
 Object-heavy actions, particularly vehicle rust removal and polishing, may temporarily stall or crash on lower-performance systems. Save first, allow each action to finish, and do not click the action repeatedly.
 
-Supplemental vehicle parts appear after entering at least three search characters. This search-only design avoids loading hundreds of additional widgets whenever the spawner opens.
+Supplemental vehicle parts appear after entering at least three search characters. This search-only design avoids loading hundreds of additional widgets whenever the spawner opens, while still allowing broad vehicle-part searches such as a vehicle name to reveal the indexed matching parts.
 
 These parts may display without an item image when the current game build does not expose a usable native thumbnail mapping. The parts remain searchable and spawnable; expanded thumbnail support is still in development.
 
@@ -81,4 +81,4 @@ See [Notices](NOTICE.md) for ownership, dependency, and trademark information.
 
 ## Version
 
-Current release: **v0.6.6**
+Current release: **v0.6.7**
