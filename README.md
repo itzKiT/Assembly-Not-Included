@@ -1,18 +1,16 @@
 # Assembly Not Included
 
-Assembly Not Included is an all-in-one utility suite for **Drive Beyond Horizons**. It combines vehicle and item spawning, vehicle maintenance tools, player utilities, world controls, a custom paint workflow, and a vehicle-only speedometer in a compact black-and-pink interface.
+Assembly Not Included is an all-in-one utility suite for **Drive Beyond Horizons**. It combines vehicle and item spawning, vehicle maintenance tools, player utilities, world controls, a custom paint workflow and a vehicle-only speedometer in a compact black-and-pink interface.
 
-Press **F7** in game to open or close Assembly Not Included.
+Press **F7** in-game to open or close Assembly Not Included.
 
 ## Highlights
 
-- Searchable eight-column item catalog
-- Complete search-only vehicle-part completion for indexed vehicle asset names
+- Searchable Item Spawn catalog
 - Full Petrol, Diesel, Oil, and Water barrel spawning
 - Completed-vehicle spawner covering the current vehicle roster
-- Custom spray-can color and finish selection
-- Eight persistent, automatically saved paint-color slots
-- Standard and infinite paint-can modes
+- Custom spray-can color and finish selection with eight persistent, automatically saved paint-color slots
+- Full pain-can and infinite paint-can modes
 - Vehicle fluid refill, unlimited fluids, battery recharge, and invulnerability
 - Persistent tire-grip adjustment with a stock reset
 - Vehicle rust, rust removal, and polishing tools
