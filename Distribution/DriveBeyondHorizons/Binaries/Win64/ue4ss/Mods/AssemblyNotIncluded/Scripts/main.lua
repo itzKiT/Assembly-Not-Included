@@ -2468,8 +2468,110 @@ finalize_spawned_vehicle = function(vehicle)
     process_batch()
 end
 
-local function fill_tank_component(actor, component, infinite)
+function ANI_ToolState.object_identity_text(object)
+    if not valid(object) then return "" end
+    local parts = {}
+    local id = unreal_object_id(object)
+    if id then table.insert(parts, id) end
+
+    local ok, class = pcall(function() return object:GetClass() end)
+    if ok and valid(class) then
+        local class_id = unreal_object_id(class)
+        if class_id then table.insert(parts, class_id) end
+    end
+
+    ok, class = pcall(function() return object:GetOuter() end)
+    if ok and valid(class) then
+        local outer_id = unreal_object_id(class)
+        if outer_id then table.insert(parts, outer_id) end
+    end
+
+    return string.lower(table.concat(parts, " "))
+end
+
+function ANI_ToolState.fluid_key_number(value)
+    value = unwrap_hook_value(value)
+    local direct = tonumber(value)
+    if direct ~= nil then return direct end
+
+    local text = string.lower(tostring(value or ""))
+    if string.find(text, "diesel", 1, true) then return 5 end
+    if string.find(text, "petrol", 1, true) or
+        string.find(text, "gasoline", 1, true) or
+        string.find(text, "essence", 1, true) then
+        return 0
+    end
+    if string.find(text, "oil", 1, true) then return 1 end
+    if string.find(text, "water", 1, true) or
+        string.find(text, "coolant", 1, true) then
+        return 2
+    end
+    return nil
+end
+
+function ANI_ToolState.single_accepted_fluid(component)
+    local accepted_ok, accepted =
+        pcall(function() return component.FluidAccepted end)
+    if not accepted_ok or not accepted then return nil end
+
+    local count = 0
+    local candidate = nil
+    pcall(function()
+        accepted:ForEach(function(_, entry)
+            count = count + 1
+            candidate = unwrap_hook_value(entry)
+            return true
+        end)
+    end)
+    if count == 1 then return candidate end
+    return nil
+end
+
+function ANI_ToolState.infer_refill_fluid(actor, component, vehicle)
+    local text =
+        ANI_ToolState.object_identity_text(actor) .. " " ..
+        ANI_ToolState.object_identity_text(component) .. " " ..
+        ANI_ToolState.object_identity_text(vehicle)
+
+    if string.find(text, "diesel", 1, true) or
+        string.find(text, "gazole", 1, true) or
+        string.find(text, "petrol", 1, true) or
+        string.find(text, "gasoline", 1, true) or
+        string.find(text, "essence", 1, true) or
+        string.find(text, "fuel", 1, true) then
+        log("Skipped vehicle fuel tank refill; fuel barrels should be used manually.")
+        return nil
+    end
+
+    if string.find(text, "radiator", 1, true) or
+        string.find(text, "coolant", 1, true) or
+        string.find(text, "water", 1, true) then
+        return 2
+    end
+
+    if string.find(text, "oil", 1, true) or
+        string.find(text, "motor", 1, true) or
+        string.find(text, "engine", 1, true) then
+        return 1
+    end
+
+    local accepted = ANI_ToolState.single_accepted_fluid(component)
+    local accepted_number = ANI_ToolState.fluid_key_number(accepted)
+    if accepted_number == 1 or accepted_number == 2 then
+        return accepted_number
+    end
+    if accepted_number == 0 or accepted_number == 5 then
+        log("Skipped vehicle fuel tank refill; fuel barrels should be used manually.")
+    end
+    return nil
+end
+
+local function fill_tank_component(actor, component, vehicle)
     if not valid(component) then return false end
+    local fluid_type = ANI_ToolState.infer_refill_fluid(
+        actor, component, vehicle)
+    if fluid_type == nil then return false end
+
     local identity = unreal_object_id(component)
     local stock_maximum = identity and vehicle_tank_maximums[identity] or nil
     if stock_maximum == nil then
@@ -2478,13 +2580,11 @@ local function fill_tank_component(actor, component, infinite)
             vehicle_tank_maximums[identity] = stock_maximum
         end
     end
-    if infinite then
-        set_if_present(component, "MaxQuantity", 999999.0)
-    elseif stock_maximum and stock_maximum > 0 then
+    if stock_maximum and stock_maximum > 0 then
         set_if_present(component, "MaxQuantity", stock_maximum)
     end
 
-    local target = infinite and 999999.0 or stock_maximum
+    local target = stock_maximum
     if type(target) ~= "number" or target <= 0 then return false end
 
     local changed = false
@@ -2492,27 +2592,25 @@ local function fill_tank_component(actor, component, infinite)
         pcall(function() return component.FluidMap end)
     if map_ok and fluid_map then
         pcall(function()
-            fluid_map:ForEach(function(_, value)
-                value:set(target)
-                changed = true
+            fluid_map:ForEach(function(key, value)
+                local key_number = ANI_ToolState.fluid_key_number(key)
+                if key_number == nil or key_number == fluid_type then
+                    value:set(target)
+                    changed = true
+                else
+                    value:set(0.0)
+                end
             end)
         end)
         if not changed then
-            local accepted_ok, accepted =
-                pcall(function() return component.FluidAccepted end)
-            if accepted_ok and accepted then
-                local added = false
-                pcall(function()
-                    accepted:ForEach(function(_, entry)
-                        if not added then
-                            fluid_map:Add(
-                                unwrap_hook_value(entry), target)
-                            added = true
-                            changed = true
-                        end
-                        return true
-                    end)
-                end)
+            local added = pcall(function()
+                fluid_map:Add(fluid_type, target)
+            end)
+            changed = added == true
+            if changed then
+                log("Filled empty vehicle tank using inferred fluid " ..
+                    tostring(fluid_type) .. " for " ..
+                    tostring(unreal_object_id(component) or component) .. ".")
             end
         end
     end
@@ -2526,7 +2624,7 @@ local function fill_tank_component(actor, component, infinite)
     return changed
 end
 
-local function refill_vehicle(infinite)
+local function refill_vehicle()
     local vehicle = get_current_vehicle()
     if not valid(vehicle) then show_message("Enter the driver's seat first.") return end
     local touched = 0
@@ -2536,7 +2634,7 @@ local function refill_vehicle(infinite)
             fill_tank_component,
             tank.actor,
             tank.component,
-            infinite)
+            vehicle)
         if ok and changed then
             touched = touched + 1
         end
@@ -2545,8 +2643,56 @@ local function refill_vehicle(infinite)
         show_message("No attached vehicle fluid tanks were detected.")
     else
         show_message(
-            (infinite and "Unlimited " or "Filled ") ..
-            tostring(touched) .. " of " ..
+            "Filled " .. tostring(touched) .. " of " ..
+            tostring(#tanks) .. " vehicle tank(s).")
+    end
+end
+
+function ANI_ToolState.empty_tank_component(actor, component)
+    if not valid(component) then return false end
+
+    local changed = false
+    local map_ok, fluid_map =
+        pcall(function() return component.FluidMap end)
+    if map_ok and fluid_map then
+        local emptied = pcall(function() fluid_map:Empty() end)
+        if emptied then changed = true end
+    end
+
+    if set_if_present(component, "ActualQuantity", 0.0) then
+        changed = true
+    end
+    set_if_present(component, "ForceValidFluid", false)
+    set_if_present(component, "ForceValidFluidType", 0)
+
+    if changed then
+        call_if_present(component, "UpdateFluidList")
+        call_if_present(component, "UpdateFluidPercent")
+        call_if_present(component, "OnRep_FluidList")
+        call_if_present(component, "OnRep_ActualQuantity")
+        if valid(actor) then call_if_present(actor, "UpdateFluidList") end
+    end
+    return changed
+end
+
+function ANI_ToolState.empty_vehicle_fluids()
+    local vehicle = get_current_vehicle()
+    if not valid(vehicle) then show_message("Enter the driver's seat first.") return end
+
+    local touched = 0
+    local tanks = vehicle_tanks(vehicle)
+    for _, tank in ipairs(tanks) do
+        local ok, changed = pcall(
+            ANI_ToolState.empty_tank_component,
+            tank.actor,
+            tank.component)
+        if ok and changed then touched = touched + 1 end
+    end
+
+    if #tanks == 0 then
+        show_message("No attached vehicle fluid tanks were detected.")
+    else
+        show_message("Emptied " .. tostring(touched) .. " of " ..
             tostring(#tanks) .. " vehicle tank(s).")
     end
 end
@@ -3574,8 +3720,9 @@ register("AddMoney", function() adjust_money(5000) end)
 register("RemoveMoney", function() adjust_money(-5000) end)
 register("VehicleInfo", toggle_vehicle_info)
 register("VehicleInvulnerable", toggle_vehicle_invulnerability)
-register("VehicleFill", function() refill_vehicle(false) end)
-register("VehicleInfinite", function() refill_vehicle(true) end)
+register("VehicleFill", refill_vehicle)
+register("VehicleEmptyFluids", ANI_ToolState.empty_vehicle_fluids)
+register("VehicleInfinite", ANI_ToolState.empty_vehicle_fluids)
 register("RechargeBatteries", recharge_batteries)
 register("VehicleClean", function() set_vehicle_surface("polish") end)
 register("VehicleRemoveRust", function() set_vehicle_surface("remove_rust") end)

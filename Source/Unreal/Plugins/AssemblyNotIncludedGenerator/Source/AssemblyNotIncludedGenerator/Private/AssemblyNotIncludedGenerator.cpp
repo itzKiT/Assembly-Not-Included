@@ -408,7 +408,7 @@ UWidgetBlueprint* CreateMenuWidget()
         {TEXT("Btn_VehicleInfo"), TEXT("Inspect Vehicle")},
         {TEXT("Btn_VehicleInvulnerable"), TEXT("Invulnerability")},
         {TEXT("Btn_VehicleFill"), TEXT("Fill Fluids")},
-        {TEXT("Btn_VehicleInfinite"), TEXT("Unlimited Fluids")},
+        {TEXT("Btn_VehicleInfinite"), TEXT("Empty Fluids")},
         {TEXT("Btn_RechargeBatteries"), TEXT("Recharge Batteries")},
         {TEXT("Btn_VehicleClean"), TEXT("Polish Vehicle")},
         {TEXT("Btn_VehicleRemoveRust"), TEXT("Remove Rust")},
